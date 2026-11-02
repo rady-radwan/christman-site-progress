@@ -3,11 +3,12 @@
 A week-by-week record of construction sites from drone photos and videos.
 
 - **Many projects, many buildings** — each project holds its own buildings/areas.
+- **Camera views per building** — Front, Back, Side, 45° angle, or your own. Shoot the same angle and elevation every week and each view gets its own timeline.
 - **Timeline bar** — every capture date is a stop on the bar along the bottom. Click a week (or use ← / →) to see the site as it was then; press ▶ to play week by week.
 - **Original quality** — every photo and video is copied into the library byte-for-byte. Nothing is resized or recompressed. Photos open at full resolution and zoom to actual pixels.
 - **Back-dating** — pick any capture date when adding files, so older history can be added too.
 - **Same shot, next week** — in the photo viewer, ↑ / ↓ jumps to the same photo position in the previous/next week (handy for repeat drone waypoints).
-- **Compare weeks** — before/after slider or side by side.
+- **Compare Progress** — before/after slider, side by side, or overlay with transparency for each photo. Each photo has its own week slider, and zoom is linked.
 - **Videos** — per-week videos, or *Play all weeks in order* as one continuous playlist.
 - **Export originals** — any photo, selection, or whole date to a folder of your choice.
 

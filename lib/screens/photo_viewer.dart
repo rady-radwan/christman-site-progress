@@ -18,6 +18,7 @@ class PhotoViewer extends StatefulWidget {
     super.key,
     required this.project,
     required this.buildingId,
+    required this.viewId,
     required this.dates,
     required this.startDay,
     required this.startItemId,
@@ -25,6 +26,7 @@ class PhotoViewer extends StatefulWidget {
 
   final Project project;
   final String? buildingId;
+  final String? viewId;
   final List<DateTime> dates;
   final DateTime startDay;
   final String startItemId;
@@ -52,7 +54,7 @@ class _PhotoViewerState extends State<PhotoViewer> {
     super.initState();
     // Only dates that actually have photos.
     _dates = widget.dates
-        .where((d) => widget.project.mediaOn(d, widget.buildingId, MediaType.photo).isNotEmpty)
+        .where((d) => widget.project.mediaOn(d, widget.buildingId, MediaType.photo, viewId: widget.viewId).isNotEmpty)
         .toList();
     _dayIndex = _dates.indexWhere((d) => dayKey(d) == dayKey(widget.startDay));
     if (_dayIndex < 0) _dayIndex = 0;
@@ -71,7 +73,7 @@ class _PhotoViewerState extends State<PhotoViewer> {
 
   List<MediaItem> _photosOf(int dayIndex) {
     if (_dates.isEmpty) return [];
-    return widget.project.mediaOn(_dates[dayIndex], widget.buildingId, MediaType.photo);
+    return widget.project.mediaOn(_dates[dayIndex], widget.buildingId, MediaType.photo, viewId: widget.viewId);
   }
 
   MediaItem? get _current {
@@ -129,21 +131,46 @@ class _PhotoViewerState extends State<PhotoViewer> {
     _onPhotoChanged();
   }
 
-  /// Same photo position, different week — ideal for repeat drone waypoints.
+  /// Index of the matching shot on another day: same building and camera
+  /// view, same position within that view; falls back to the same position.
+  int _matchingIndex(int targetDay) {
+    final target = _photosOf(targetDay);
+    final m = _current;
+    if (m == null || target.isEmpty) return 0;
+    final pr = widget.project;
+    final c = _store.captureContaining(pr, m);
+    if (c != null) {
+      final posInView = c.photos.indexOf(m);
+      final other = pr
+          .capturesOn(_dates[targetDay], c.buildingId, viewId: c.viewId)
+          .expand((x) => x.photos)
+          .toList();
+      if (other.isNotEmpty) {
+        final pick = other[posInView.clamp(0, other.length - 1)];
+        final i = target.indexOf(pick);
+        if (i >= 0) return i;
+      }
+    }
+    return _photoIndex.clamp(0, target.length - 1);
+  }
+
+  /// Same shot, different week — ideal for repeat drone waypoints.
   void _goWeek(int delta) {
     final nd = _dayIndex + delta;
     if (nd < 0 || nd >= _dates.length) return;
+    final idx = _matchingIndex(nd);
     setState(() {
       _dayIndex = nd;
-      _photoIndex = _photoIndex.clamp(0, _photosOf(nd).length - 1);
+      _photoIndex = idx;
     });
     _onPhotoChanged();
   }
 
   void _jumpToDay(int i) {
+    final idx = _matchingIndex(i);
     setState(() {
       _dayIndex = i;
-      _photoIndex = _photoIndex.clamp(0, _photosOf(i).length - 1);
+      _photoIndex = idx;
     });
     _onPhotoChanged();
   }
@@ -191,8 +218,8 @@ class _PhotoViewerState extends State<PhotoViewer> {
     final m = _current;
     final photos = _photosOf(_dayIndex);
     final day = _dates.isEmpty ? null : _dates[_dayIndex];
-    final building = m == null ? null : _store.captureContaining(widget.project, m)?.buildingId;
-    final bName = building == null ? '' : widget.project.buildingById(building)?.name ?? '';
+    final cap = m == null ? null : _store.captureContaining(widget.project, m);
+    final bName = cap == null ? '' : widget.project.labelFor(cap);
 
     return CallbackShortcuts(
       bindings: {

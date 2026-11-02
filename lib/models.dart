@@ -44,14 +44,44 @@ String prettySize(int bytes) {
   return '${v.toStringAsFixed(v >= 100 ? 0 : 1)} ${units[i]}';
 }
 
-class Building {
-  Building({required this.id, required this.name});
+/// Default camera positions offered for a new building.
+const defaultViewNames = ['Front', 'Back', 'Side', '45° angle'];
+
+/// A repeatable camera position for a building (Front, Back, 45°…). Keeping
+/// the same angle and elevation every week makes progress easy to compare.
+class BuildingView {
+  BuildingView({required this.id, required this.name});
   final String id;
   String name;
 
   Map<String, dynamic> toJson() => {'id': id, 'name': name};
-  factory Building.fromJson(Map<String, dynamic> j) =>
-      Building(id: j['id'] as String, name: j['name'] as String);
+  factory BuildingView.fromJson(Map<String, dynamic> j) =>
+      BuildingView(id: j['id'] as String, name: j['name'] as String);
+}
+
+class Building {
+  Building({required this.id, required this.name, List<BuildingView>? views})
+      : views = views ?? [];
+  final String id;
+  String name;
+  final List<BuildingView> views;
+
+  BuildingView? viewById(String? id) {
+    for (final v in views) {
+      if (v.id == id) return v;
+    }
+    return null;
+  }
+
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'name': name, 'views': views.map((v) => v.toJson()).toList()};
+  factory Building.fromJson(Map<String, dynamic> j) => Building(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        views: ((j['views'] as List?) ?? [])
+            .map((e) => BuildingView.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+      );
 }
 
 class MediaItem {
@@ -105,6 +135,7 @@ class Capture {
   Capture({
     required this.id,
     required this.buildingId,
+    required this.viewId,
     required this.date,
     this.note = '',
     List<MediaItem>? items,
@@ -112,6 +143,7 @@ class Capture {
 
   final String id;
   String buildingId;
+  String viewId;
   DateTime date;
   String note;
   final List<MediaItem> items;
@@ -124,6 +156,7 @@ class Capture {
   Map<String, dynamic> toJson() => {
         'id': id,
         'buildingId': buildingId,
+        'viewId': viewId,
         'date': dayKey(date),
         'note': note,
         'items': items.map((e) => e.toJson()).toList(),
@@ -132,6 +165,7 @@ class Capture {
   factory Capture.fromJson(Map<String, dynamic> j) => Capture(
         id: j['id'] as String,
         buildingId: j['buildingId'] as String,
+        viewId: j['viewId'] as String? ?? '',
         date: parseDay(j['date'] as String),
         note: j['note'] as String? ?? '',
         items: ((j['items'] as List?) ?? [])
@@ -167,11 +201,15 @@ class Project {
     return null;
   }
 
-  /// Distinct capture days, oldest first. [buildingId] null = all buildings.
-  List<DateTime> datesFor(String? buildingId, {MediaType? type}) {
+  bool _matches(Capture c, String? buildingId, String? viewId) =>
+      (buildingId == null || c.buildingId == buildingId) &&
+      (viewId == null || c.viewId == viewId);
+
+  /// Distinct capture days, oldest first. [buildingId]/[viewId] null = all.
+  List<DateTime> datesFor(String? buildingId, {String? viewId, MediaType? type}) {
     final set = <String>{};
     for (final c in captures) {
-      if (buildingId != null && c.buildingId != buildingId) continue;
+      if (!_matches(c, buildingId, viewId)) continue;
       if (type != null && !c.items.any((m) => m.type == type)) continue;
       set.add(dayKey(c.date));
     }
@@ -179,15 +217,30 @@ class Project {
     return list;
   }
 
-  List<Capture> capturesOn(DateTime day, String? buildingId) {
+  List<Capture> capturesOn(DateTime day, String? buildingId, {String? viewId}) {
     final key = dayKey(day);
     final list = captures
-        .where((c) =>
-            dayKey(c.date) == key &&
-            (buildingId == null || c.buildingId == buildingId))
+        .where((c) => dayKey(c.date) == key && _matches(c, buildingId, viewId))
         .toList();
-    list.sort((a, b) => buildingIndex(a.buildingId).compareTo(buildingIndex(b.buildingId)));
+    list.sort((a, b) {
+      final byBuilding = buildingIndex(a.buildingId).compareTo(buildingIndex(b.buildingId));
+      if (byBuilding != 0) return byBuilding;
+      return viewIndex(a).compareTo(viewIndex(b));
+    });
     return list;
+  }
+
+  int viewIndex(Capture c) {
+    final b = buildingById(c.buildingId);
+    final i = b?.views.indexWhere((v) => v.id == c.viewId) ?? -1;
+    return i < 0 ? 1 << 30 : i;
+  }
+
+  /// "Hospital · Front"
+  String labelFor(Capture c) {
+    final b = buildingById(c.buildingId);
+    final v = b?.viewById(c.viewId);
+    return [if (b != null) b.name, if (v != null) v.name].join(' · ');
   }
 
   int buildingIndex(String id) {
@@ -195,9 +248,9 @@ class Project {
     return i < 0 ? 1 << 30 : i;
   }
 
-  List<MediaItem> mediaOn(DateTime day, String? buildingId, MediaType type) {
+  List<MediaItem> mediaOn(DateTime day, String? buildingId, MediaType type, {String? viewId}) {
     final out = <MediaItem>[];
-    for (final c in capturesOn(day, buildingId)) {
+    for (final c in capturesOn(day, buildingId, viewId: viewId)) {
       out.addAll(c.items.where((m) => m.type == type));
     }
     return out;

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../dialogs/add_media_dialog.dart';
+import '../dialogs/project_dialog.dart';
 import '../library_store.dart';
 import '../models.dart';
 import '../util.dart';
@@ -27,6 +28,7 @@ class ProjectScreen extends StatefulWidget {
 
 class _ProjectScreenState extends State<ProjectScreen> {
   String? _buildingId; // null = all buildings
+  String? _viewId; // null = all views of the building
   DateTime? _day;
   MediaType _type = MediaType.photo;
   final Set<String> _selected = {};
@@ -45,7 +47,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   // ------------------------------------------------------------ navigation
 
-  List<DateTime> _dates(Project pr) => pr.datesFor(_buildingId);
+  List<DateTime> _dates(Project pr) => pr.datesFor(_buildingId, viewId: _viewId);
+
+  void _selectBuilding(String? id, {String? viewId}) => setState(() {
+        _buildingId = id;
+        _viewId = id == null ? null : viewId;
+        _selected.clear();
+      });
 
   DateTime? _effectiveDay(List<DateTime> dates) {
     if (dates.isEmpty) return null;
@@ -102,21 +110,55 @@ class _ProjectScreenState extends State<ProjectScreen> {
       context,
       project: pr,
       buildingId: _buildingId,
+      viewId: _viewId,
       initialPaths: paths,
     );
     if (r == null || !mounted) return;
     setState(() {
       _day = r.day;
       if (_buildingId != null && _buildingId != r.buildingId) _buildingId = r.buildingId;
+      if (_viewId != null && _viewId != r.viewId) _viewId = r.viewId;
     });
     if (r.imported > 0) showSnack(context, 'Added ${r.imported} file${r.imported == 1 ? '' : 's'} to ${prettyDay(r.day)}');
   }
 
   Future<void> _addBuilding(Project pr) async {
-    final name = await promptText(context, title: 'Add building / area', confirmLabel: 'Add');
+    final r = await showBuildingDialog(context);
+    if (r == null || r.name.trim().isEmpty) return;
+    final b = await _store.addBuilding(pr, r.name, viewNames: r.views);
+    _selectBuilding(b.id);
+  }
+
+  Future<void> _addView(Project pr, Building b) async {
+    final name = await promptText(context,
+        title: 'New camera view for ${b.name}',
+        label: 'View name (e.g. North elevation, Roof)',
+        confirmLabel: 'Add');
     if (name == null || name.trim().isEmpty) return;
-    final b = await _store.addBuilding(pr, name);
-    setState(() => _buildingId = b.id);
+    final v = await _store.addView(pr, b, name);
+    _selectBuilding(b.id, viewId: v.id);
+  }
+
+  Future<void> _renameView(Project pr, BuildingView v) async {
+    final name = await promptText(context, title: 'Rename view', initial: v.name);
+    if (name == null || name.trim().isEmpty) return;
+    await _store.renameView(pr, v, name);
+  }
+
+  Future<void> _deleteView(Project pr, Building b, BuildingView v) async {
+    if (b.views.length == 1) {
+      showSnack(context, 'A building needs at least one camera view.');
+      return;
+    }
+    final count = pr.captures
+        .where((c) => c.buildingId == b.id && c.viewId == v.id)
+        .fold<int>(0, (s, c) => s + c.items.length);
+    final ok = await confirm(context,
+        title: 'Delete view "${v.name}"?',
+        message: 'This deletes the view and its $count stored photos/videos from the library.');
+    if (!ok) return;
+    await _store.deleteView(pr, b, v);
+    if (_viewId == v.id) setState(() => _viewId = null);
   }
 
   Future<void> _renameBuilding(Project pr, Building b) async {
@@ -136,7 +178,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
         message: 'This deletes the building and its $count stored photos/videos from the library.');
     if (!ok) return;
     await _store.deleteBuilding(pr, b);
-    if (_buildingId == b.id) setState(() => _buildingId = null);
+    if (_buildingId == b.id) _selectBuilding(null);
   }
 
   List<MediaItem> _selectedItems(Project pr) => [
@@ -169,38 +211,46 @@ class _ProjectScreenState extends State<ProjectScreen> {
     final items = _selectedItems(pr);
     if (items.isEmpty) return;
     final from = _store.captureContaining(pr, items.first);
-    final r = await showMoveDialog(context, pr, from?.buildingId ?? pr.buildings.first.id, day);
+    final bId = from?.buildingId ?? pr.buildings.first.id;
+    final vId = from?.viewId ?? pr.buildings.first.views.first.id;
+    final r = await showMoveDialog(context, pr, bId, vId, day);
     if (r == null) return;
-    await _store.moveMedia(pr, items, buildingId: r.$1, day: r.$2);
+    await _store.moveMedia(pr, items, buildingId: r.$1, viewId: r.$2, day: r.$3);
     setState(() {
       _selected.clear();
-      _day = r.$2;
+      _day = r.$3;
     });
   }
 
   Future<void> _changeDate(Project pr, DateTime day) async {
     final d = await pickDay(context, day);
     if (d == null || dayKey(d) == dayKey(day)) return;
-    await _store.changeDate(pr, day, d, _buildingId);
+    await _store.changeDate(pr, day, d, _buildingId, viewId: _viewId);
     setState(() => _day = d);
   }
 
   Future<void> _deleteDay(Project pr, DateTime day) async {
-    final caps = pr.capturesOn(day, _buildingId);
+    final caps = pr.capturesOn(day, _buildingId, viewId: _viewId);
     final n = caps.fold<int>(0, (s, c) => s + c.items.length);
-    final where = _buildingId == null ? 'all buildings' : pr.buildingById(_buildingId!)?.name ?? '';
+    final where = _scopeLabel(pr);
     final ok = await confirm(context,
         title: 'Delete ${prettyDay(day)}?',
         message: 'This deletes all $n photos/videos captured on this date ($where) from the library.');
     if (!ok) return;
-    await _store.deleteDay(pr, day, _buildingId);
+    await _store.deleteDay(pr, day, _buildingId, viewId: _viewId);
     setState(() => _day = null);
   }
 
+  String _scopeLabel(Project pr) {
+    if (_buildingId == null) return 'all buildings';
+    final b = pr.buildingById(_buildingId!);
+    final v = b?.viewById(_viewId);
+    return [b?.name ?? '', if (v != null) v.name].join(' · ');
+  }
+
   Future<void> _editNote(Project pr, Capture c) async {
-    final b = pr.buildingById(c.buildingId);
     final text = await promptText(context,
-        title: 'Note — ${b?.name ?? ''}, ${prettyDay(c.date)}',
+        title: 'Note — ${pr.labelFor(c)}, ${prettyDay(c.date)}',
         initial: c.note,
         label: 'What happened on site',
         maxLines: 4);
@@ -215,6 +265,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
         builder: (_) => PhotoViewer(
           project: pr,
           buildingId: _buildingId,
+          viewId: _viewId,
           dates: dates,
           startDay: day,
           startItemId: item.id,
@@ -241,10 +292,12 @@ class _ProjectScreenState extends State<ProjectScreen> {
   void _playAllWeeks(Project pr) {
     final items = <MediaItem>[];
     final labels = <String>[];
-    for (final d in pr.datesFor(_buildingId, type: MediaType.video)) {
-      for (final m in pr.mediaOn(d, _buildingId, MediaType.video)) {
-        items.add(m);
-        labels.add('Week ${pr.weekNumber(d)} · ${prettyDay(d)}');
+    for (final d in pr.datesFor(_buildingId, viewId: _viewId, type: MediaType.video)) {
+      for (final c in pr.capturesOn(d, _buildingId, viewId: _viewId)) {
+        for (final m in c.videos) {
+          items.add(m);
+          labels.add('Week ${pr.weekNumber(d)} · ${prettyDay(d)} · ${pr.labelFor(c)}');
+        }
       }
     }
     if (items.isEmpty) return;
@@ -260,7 +313,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
     if (pr == null) {
       return Scaffold(appBar: AppBar(), body: const Center(child: Text('Project not found')));
     }
-    if (_buildingId != null && pr.buildingById(_buildingId!) == null) _buildingId = null;
+    if (_buildingId != null && pr.buildingById(_buildingId!) == null) {
+      _buildingId = null;
+      _viewId = null;
+    }
+    if (_viewId != null && pr.buildingById(_buildingId ?? '')?.viewById(_viewId) == null) _viewId = null;
 
     final dates = _dates(pr);
     final day = _effectiveDay(dates);
@@ -295,13 +352,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       builder: (_) => CompareScreen(
                         project: pr,
                         buildingId: _buildingId,
+                        viewId: _viewId,
                         dates: dates,
                         after: day,
                       ),
                     ),
                   ),
                   icon: const Icon(Icons.compare_rounded),
-                  label: const Text('Compare weeks'),
+                  label: const Text('Compare Progress'),
                 ),
               const SizedBox(width: 8),
               FilledButton.icon(
@@ -316,8 +374,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   if (v == 'exportDay' && day != null) {
                     _export(
                       [
-                        ...pr.mediaOn(day, _buildingId, MediaType.photo),
-                        ...pr.mediaOn(day, _buildingId, MediaType.video),
+                        ...pr.mediaOn(day, _buildingId, MediaType.photo, viewId: _viewId),
+                        ...pr.mediaOn(day, _buildingId, MediaType.video, viewId: _viewId),
                       ],
                       prefix: '${dayKey(day)}_',
                     );
@@ -397,13 +455,16 @@ class _ProjectScreenState extends State<ProjectScreen> {
     );
   }
 
+  int _countFor(Project pr, {String? buildingId, String? viewId}) => pr.captures
+      .where((c) =>
+          (buildingId == null || c.buildingId == buildingId) &&
+          (viewId == null || c.viewId == viewId))
+      .fold(0, (s, c) => s + c.items.length);
+
   Widget _sidebar(Project pr) {
     final scheme = Theme.of(context).colorScheme;
-    int countFor(String? id) => pr.captures
-        .where((c) => id == null || c.buildingId == id)
-        .fold(0, (s, c) => s + c.items.length);
     return SizedBox(
-      width: 240,
+      width: 260,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -411,7 +472,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
             child: Row(
               children: [
-                Text('BUILDINGS',
+                Text('BUILDINGS & VIEWS',
                     style: TextStyle(
                         fontSize: 11,
                         letterSpacing: 1,
@@ -430,43 +491,80 @@ class _ProjectScreenState extends State<ProjectScreen> {
           _BuildingTile(
             label: 'All buildings',
             icon: Icons.layers_outlined,
-            count: countFor(null),
+            count: _countFor(pr),
             selected: _buildingId == null,
-            onTap: () => setState(() {
-              _buildingId = null;
-              _selected.clear();
-            }),
+            onTap: () => _selectBuilding(null),
           ),
           Expanded(
             child: ReorderableListView.builder(
               buildDefaultDragHandles: false,
+              padding: const EdgeInsets.only(bottom: 16),
               itemCount: pr.buildings.length,
               onReorder: (a, b) => _store.moveBuilding(pr, a, b > a ? b - 1 : b),
               itemBuilder: (context, i) {
                 final b = pr.buildings[i];
+                final open = _buildingId == b.id;
                 return ReorderableDelayedDragStartListener(
                   key: ValueKey(b.id),
                   index: i,
-                  child: _BuildingTile(
-                    label: b.name,
-                    icon: Icons.apartment_outlined,
-                    count: countFor(b.id),
-                    selected: _buildingId == b.id,
-                    onTap: () => setState(() {
-                      _buildingId = b.id;
-                      _selected.clear();
-                    }),
-                    menu: PopupMenuButton<String>(
-                      iconSize: 18,
-                      onSelected: (v) {
-                        if (v == 'rename') _renameBuilding(pr, b);
-                        if (v == 'delete') _deleteBuilding(pr, b);
-                      },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'rename', child: Text('Rename')),
-                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _BuildingTile(
+                        label: b.name,
+                        icon: Icons.apartment_outlined,
+                        count: _countFor(pr, buildingId: b.id),
+                        selected: open && _viewId == null,
+                        expanded: open,
+                        onTap: () => _selectBuilding(b.id),
+                        menu: PopupMenuButton<String>(
+                          iconSize: 18,
+                          onSelected: (v) {
+                            if (v == 'view') _addView(pr, b);
+                            if (v == 'rename') _renameBuilding(pr, b);
+                            if (v == 'delete') _deleteBuilding(pr, b);
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: 'view', child: Text('Add camera view')),
+                            PopupMenuItem(value: 'rename', child: Text('Rename building')),
+                            PopupMenuItem(value: 'delete', child: Text('Delete building')),
+                          ],
+                        ),
+                      ),
+                      if (open) ...[
+                        for (final v in b.views)
+                          _BuildingTile(
+                            label: v.name,
+                            icon: Icons.photo_camera_outlined,
+                            indent: true,
+                            count: _countFor(pr, buildingId: b.id, viewId: v.id),
+                            selected: _viewId == v.id,
+                            onTap: () => _selectBuilding(b.id, viewId: v.id),
+                            menu: PopupMenuButton<String>(
+                              iconSize: 18,
+                              onSelected: (x) {
+                                if (x == 'rename') _renameView(pr, v);
+                                if (x == 'delete') _deleteView(pr, b, v);
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(value: 'rename', child: Text('Rename view')),
+                                PopupMenuItem(value: 'delete', child: Text('Delete view')),
+                              ],
+                            ),
+                          ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(36, 0, 8, 6),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () => _addView(pr, b),
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text('Add view'),
+                            ),
+                          ),
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                 );
               },
@@ -478,44 +576,66 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Widget _buildingChips(Project pr) {
-    return SizedBox(
-      height: 52,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              label: const Text('All'),
-              selected: _buildingId == null,
-              onSelected: (_) => setState(() => _buildingId = null),
-            ),
+    final b = _buildingId == null ? null : pr.buildingById(_buildingId!);
+    Widget row(List<Widget> children) => SizedBox(
+          height: 52,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            children: [
+              for (final c in children) Padding(padding: const EdgeInsets.only(right: 8), child: c),
+            ],
           ),
-          for (final b in pr.buildings)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(b.name),
-                selected: _buildingId == b.id,
-                onSelected: (_) => setState(() => _buildingId = b.id),
-              ),
+        );
+    return Column(
+      children: [
+        row([
+          ChoiceChip(
+            label: const Text('All'),
+            selected: _buildingId == null,
+            onSelected: (_) => _selectBuilding(null),
+          ),
+          for (final x in pr.buildings)
+            ChoiceChip(
+              label: Text(x.name),
+              selected: _buildingId == x.id,
+              onSelected: (_) => _selectBuilding(x.id),
             ),
           ActionChip(
             avatar: const Icon(Icons.add, size: 18),
             label: const Text('Building'),
             onPressed: () => _addBuilding(pr),
           ),
-        ],
-      ),
+        ]),
+        if (b != null)
+          row([
+            ChoiceChip(
+              label: const Text('All views'),
+              selected: _viewId == null,
+              onSelected: (_) => _selectBuilding(b.id),
+            ),
+            for (final v in b.views)
+              ChoiceChip(
+                avatar: const Icon(Icons.photo_camera_outlined, size: 16),
+                label: Text(v.name),
+                selected: _viewId == v.id,
+                onSelected: (_) => _selectBuilding(b.id, viewId: v.id),
+              ),
+            ActionChip(
+              avatar: const Icon(Icons.add, size: 18),
+              label: const Text('View'),
+              onPressed: () => _addView(pr, b),
+            ),
+          ]),
+      ],
     );
   }
 
   Widget _header(Project pr, DateTime? day, bool selecting) {
     final scheme = Theme.of(context).colorScheme;
-    final photos = day == null ? 0 : pr.mediaOn(day, _buildingId, MediaType.photo).length;
-    final videos = day == null ? 0 : pr.mediaOn(day, _buildingId, MediaType.video).length;
-    final caps = day == null ? <Capture>[] : pr.capturesOn(day, _buildingId);
+    final photos = day == null ? 0 : pr.mediaOn(day, _buildingId, MediaType.photo, viewId: _viewId).length;
+    final videos = day == null ? 0 : pr.mediaOn(day, _buildingId, MediaType.video, viewId: _viewId).length;
+    final caps = day == null ? <Capture>[] : pr.capturesOn(day, _buildingId, viewId: _viewId);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 16, 12),
@@ -530,7 +650,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('WEEK ${pr.weekNumber(day)}',
+                          Text('WEEK ${pr.weekNumber(day)}  ·  ${_scopeLabel(pr).toUpperCase()}',
                               style: TextStyle(
                                   color: scheme.primary,
                                   fontWeight: FontWeight.w800,
@@ -595,8 +715,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
                     label: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: Text(
-                        _buildingId == null
-                            ? '${pr.buildingById(c.buildingId)?.name ?? ''}: ${c.note.isEmpty ? 'add note' : c.note}'
+                        _viewId == null
+                            ? '${pr.labelFor(c)}: ${c.note.isEmpty ? 'add note' : c.note}'
                             : (c.note.isEmpty ? 'Add a note for this date' : c.note),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -635,11 +755,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
       );
     }
 
-    final caps = pr.capturesOn(day, _buildingId);
-    final groups = <(Building?, List<MediaItem>)>[];
+    final caps = pr.capturesOn(day, _buildingId, viewId: _viewId);
+    final groups = <(String, List<MediaItem>)>[];
     for (final c in caps) {
       final items = c.items.where((m) => m.type == _type).toList();
-      if (items.isNotEmpty) groups.add((pr.buildingById(c.buildingId), items));
+      if (items.isNotEmpty) groups.add((pr.labelFor(c), items));
     }
 
     if (groups.isEmpty) {
@@ -661,7 +781,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
 
     final allOfType = [for (final g in groups) ...g.$2];
-    final showGroupTitles = _buildingId == null && pr.buildings.length > 1;
+    final showGroupTitles = _viewId == null;
 
     return CustomScrollView(
       slivers: [
@@ -692,7 +812,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                child: Text(g.$1?.name ?? '',
+                child: Text(g.$1,
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               ),
             ),
@@ -745,6 +865,8 @@ class _BuildingTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.menu,
+    this.indent = false,
+    this.expanded = false,
   });
 
   final String label;
@@ -753,31 +875,41 @@ class _BuildingTile extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   final Widget? menu;
+  final bool indent;
+  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final highlight = selected || expanded;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: EdgeInsets.fromLTRB(indent ? 30 : 8, indent ? 0 : 2, 8, indent ? 0 : 2),
       child: Material(
-        color: selected ? scheme.primary.withValues(alpha: 0.14) : Colors.transparent,
+        color: selected
+            ? scheme.primary.withValues(alpha: 0.14)
+            : expanded
+                ? scheme.primary.withValues(alpha: 0.06)
+                : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: onTap,
           child: Padding(
-            padding: EdgeInsets.fromLTRB(12, 8, menu == null ? 12 : 0, 8),
+            padding: EdgeInsets.fromLTRB(12, indent ? 4 : 8, menu == null ? 12 : 0, indent ? 4 : 8),
             child: Row(
               children: [
-                Icon(icon, size: 20, color: selected ? scheme.primary : scheme.onSurfaceVariant),
+                Icon(icon,
+                    size: indent ? 17 : 20,
+                    color: highlight ? scheme.primary : scheme.onSurfaceVariant),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected ? scheme.primary : null)),
+                          fontSize: indent ? 13 : 14,
+                          fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
+                          color: highlight ? scheme.primary : null)),
                 ),
                 Text('$count', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
                 if (menu != null) menu!,

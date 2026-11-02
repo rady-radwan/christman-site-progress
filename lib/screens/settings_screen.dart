@@ -7,7 +7,7 @@ import '../main.dart' show themeMode;
 import '../models.dart';
 import '../util.dart';
 
-const appVersion = '1.0.0';
+const appVersion = '1.1.0';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -140,7 +140,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Text(
                 'Project:  ← / → previous / next week  ·  Space play week by week\n'
                 'Photo viewer:  ← / → previous / next photo  ·  ↑ / ↓ same shot in previous / next week  ·  '
-                'Z or double-click zoom to actual pixels  ·  H hide controls  ·  Esc back',
+                'Z or double-click zoom to actual pixels  ·  H hide controls  ·  Esc back\n'
+                'Compare Progress:  scroll to zoom both photos together  ·  0 reset zoom',
                 style: TextStyle(height: 1.6),
               ),
             ),

@@ -65,7 +65,35 @@ class LibraryStore extends ChangeNotifier {
     if (custom != null && custom.isNotEmpty) root = Directory(custom);
     await root.create(recursive: true);
     final projects = await _readProjects(root);
-    return LibraryStore._(root, projects);
+    final store = LibraryStore._(root, projects);
+    if (store._migrate()) await store.save();
+    return store;
+  }
+
+  /// Makes sure every building has at least one view and every capture points
+  /// at a real view. Returns true when anything changed.
+  bool _migrate() {
+    var changed = false;
+    for (final pr in projects) {
+      for (final b in pr.buildings) {
+        final caps = pr.captures.where((c) => c.buildingId == b.id).toList();
+        if (b.views.isEmpty) {
+          if (caps.isEmpty) {
+            b.views.addAll(defaultViewNames.map((n) => BuildingView(id: _uuid.v4(), name: n)));
+          } else {
+            b.views.add(BuildingView(id: _uuid.v4(), name: 'General'));
+          }
+          changed = true;
+        }
+        for (final c in caps) {
+          if (b.viewById(c.viewId) == null) {
+            c.viewId = b.views.first.id;
+            changed = true;
+          }
+        }
+      }
+    }
+    return changed;
   }
 
   static Future<List<Project>> _readProjects(Directory root) async {
@@ -135,6 +163,7 @@ class LibraryStore extends ChangeNotifier {
     String location = '',
     String description = '',
     List<String> buildingNames = const [],
+    List<String> viewNames = defaultViewNames,
   }) async {
     final names = buildingNames.where((n) => n.trim().isNotEmpty).toList();
     if (names.isEmpty) names.add('Overall Site');
@@ -144,7 +173,9 @@ class LibraryStore extends ChangeNotifier {
       location: location.trim(),
       description: description.trim(),
       createdAt: DateTime.now(),
-      buildings: names.map((n) => Building(id: _uuid.v4(), name: n.trim())).toList(),
+      buildings: names
+          .map((n) => Building(id: _uuid.v4(), name: n.trim(), views: _makeViews(viewNames)))
+          .toList(),
     );
     projects.add(pr);
     await _changed();
@@ -168,8 +199,15 @@ class LibraryStore extends ChangeNotifier {
 
   // ---------------------------------------------------------------- buildings
 
-  Future<Building> addBuilding(Project pr, String name) async {
-    final b = Building(id: _uuid.v4(), name: name.trim());
+  static List<BuildingView> _makeViews(List<String> names) {
+    final clean = names.map((n) => n.trim()).where((n) => n.isNotEmpty).toList();
+    if (clean.isEmpty) clean.add('General');
+    return clean.map((n) => BuildingView(id: _uuid.v4(), name: n)).toList();
+  }
+
+  Future<Building> addBuilding(Project pr, String name,
+      {List<String> viewNames = defaultViewNames}) async {
+    final b = Building(id: _uuid.v4(), name: name.trim(), views: _makeViews(viewNames));
     pr.buildings.add(b);
     await _changed();
     return b;
@@ -189,6 +227,35 @@ class LibraryStore extends ChangeNotifier {
     await _deleteFiles(files);
   }
 
+  // ---------------------------------------------------------------- views
+
+  Future<BuildingView> addView(Project pr, Building b, String name) async {
+    final v = BuildingView(id: _uuid.v4(), name: name.trim());
+    b.views.add(v);
+    await _changed();
+    return v;
+  }
+
+  Future<void> renameView(Project pr, BuildingView v, String name) async {
+    v.name = name.trim();
+    await _changed();
+  }
+
+  Future<void> deleteView(Project pr, Building b, BuildingView v) async {
+    final caps = pr.captures.where((c) => c.buildingId == b.id && c.viewId == v.id).toList();
+    final files = [for (final c in caps) ...c.items.map(fileFor)];
+    pr.captures.removeWhere(caps.contains);
+    b.views.remove(v);
+    await _changed();
+    await _deleteFiles(files);
+  }
+
+  Future<void> moveView(Project pr, Building b, int oldIndex, int newIndex) async {
+    final v = b.views.removeAt(oldIndex);
+    b.views.insert(newIndex.clamp(0, b.views.length), v);
+    await _changed();
+  }
+
   Future<void> moveBuilding(Project pr, int oldIndex, int newIndex) async {
     final b = pr.buildings.removeAt(oldIndex);
     pr.buildings.insert(newIndex.clamp(0, pr.buildings.length), b);
@@ -197,20 +264,21 @@ class LibraryStore extends ChangeNotifier {
 
   // ---------------------------------------------------------------- captures
 
-  Capture? captureFor(Project pr, String buildingId, DateTime day) {
+  Capture? captureFor(Project pr, String buildingId, String viewId, DateTime day) {
     final key = dayKey(day);
     for (final c in pr.captures) {
-      if (c.buildingId == buildingId && dayKey(c.date) == key) return c;
+      if (c.buildingId == buildingId && c.viewId == viewId && dayKey(c.date) == key) return c;
     }
     return null;
   }
 
-  Capture _ensureCapture(Project pr, String buildingId, DateTime day) {
-    final existing = captureFor(pr, buildingId, day);
+  Capture _ensureCapture(Project pr, String buildingId, String viewId, DateTime day) {
+    final existing = captureFor(pr, buildingId, viewId, day);
     if (existing != null) return existing;
     final c = Capture(
       id: _uuid.v4(),
       buildingId: buildingId,
+      viewId: viewId,
       date: DateTime(day.year, day.month, day.day),
     );
     pr.captures.add(c);
@@ -224,12 +292,13 @@ class LibraryStore extends ChangeNotifier {
   Future<ImportResult> importMedia(
     Project pr,
     String buildingId,
+    String viewId,
     DateTime day,
     List<String> paths, {
     String? note,
     void Function(int done, int total, String current)? onProgress,
   }) async {
-    final capture = _ensureCapture(pr, buildingId, day);
+    final capture = _ensureCapture(pr, buildingId, viewId, day);
     if (note != null && note.trim().isNotEmpty) capture.note = note.trim();
     final mediaDir = Directory(p.join(projectDir(pr).path, 'media'));
     await mediaDir.create(recursive: true);
@@ -293,8 +362,8 @@ class LibraryStore extends ChangeNotifier {
     await _deleteFiles(items.map(fileFor).toList());
   }
 
-  Future<void> deleteDay(Project pr, DateTime day, String? buildingId) async {
-    final caps = pr.capturesOn(day, buildingId);
+  Future<void> deleteDay(Project pr, DateTime day, String? buildingId, {String? viewId}) async {
+    final caps = pr.capturesOn(day, buildingId, viewId: viewId);
     final files = [for (final c in caps) ...c.items.map(fileFor)];
     pr.captures.removeWhere(caps.contains);
     await _changed();
@@ -308,10 +377,10 @@ class LibraryStore extends ChangeNotifier {
 
   /// Moves every capture shown on [from] to [to] (merging with what's there).
   Future<void> changeDate(
-      Project pr, DateTime from, DateTime to, String? buildingId) async {
-    final caps = pr.capturesOn(from, buildingId);
+      Project pr, DateTime from, DateTime to, String? buildingId, {String? viewId}) async {
+    final caps = pr.capturesOn(from, buildingId, viewId: viewId);
     for (final c in caps) {
-      final target = captureFor(pr, c.buildingId, to);
+      final target = captureFor(pr, c.buildingId, c.viewId, to);
       if (target != null && target != c) {
         target.items.addAll(c.items);
         if (target.note.isEmpty) target.note = c.note;
@@ -323,10 +392,10 @@ class LibraryStore extends ChangeNotifier {
     await _changed();
   }
 
-  /// Moves items to another building and/or date.
+  /// Moves items to another building, view and/or date.
   Future<void> moveMedia(Project pr, List<MediaItem> items,
-      {required String buildingId, required DateTime day}) async {
-    final target = _ensureCapture(pr, buildingId, day);
+      {required String buildingId, required String viewId, required DateTime day}) async {
+    final target = _ensureCapture(pr, buildingId, viewId, day);
     for (final m in items) {
       final c = captureContaining(pr, m);
       if (c == target) continue;
@@ -386,6 +455,7 @@ class LibraryStore extends ChangeNotifier {
       projects
         ..clear()
         ..addAll(loaded);
+      _migrate();
       message = 'Opened the existing library in that folder.';
     } else {
       await _saveChain;

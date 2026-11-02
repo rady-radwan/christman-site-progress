@@ -211,3 +211,130 @@ class _Stop extends StatelessWidget {
     );
   }
 }
+
+/// A compact, scrollable row of week stops used to pick a date for one photo
+/// (e.g. the Before or After side in Compare Progress).
+class MiniTimeline extends StatefulWidget {
+  const MiniTimeline({
+    super.key,
+    required this.project,
+    required this.dates,
+    required this.selectedIndex,
+    required this.onSelect,
+    this.accent,
+  });
+
+  final Project project;
+  final List<DateTime> dates;
+  final int selectedIndex;
+  final ValueChanged<int> onSelect;
+  final Color? accent;
+
+  @override
+  State<MiniTimeline> createState() => _MiniTimelineState();
+}
+
+class _MiniTimelineState extends State<MiniTimeline> {
+  final _scroll = ScrollController();
+  final List<GlobalKey> _keys = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(false));
+  }
+
+  @override
+  void didUpdateWidget(covariant MiniTimeline old) {
+    super.didUpdateWidget(old);
+    if (old.selectedIndex != widget.selectedIndex) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(true));
+    }
+  }
+
+  void _reveal(bool animate) {
+    final i = widget.selectedIndex;
+    if (i < 0 || i >= _keys.length) return;
+    final ctx = _keys[i].currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(ctx,
+        alignment: 0.5,
+        duration: animate ? const Duration(milliseconds: 200) : Duration.zero);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    while (_keys.length < widget.dates.length) {
+      _keys.add(GlobalKey());
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final accent = widget.accent ?? scheme.primary;
+    final n = widget.dates.length;
+    return SizedBox(
+      height: 56,
+      child: Scrollbar(
+        controller: _scroll,
+        child: ListView.builder(
+          controller: _scroll,
+          scrollDirection: Axis.horizontal,
+          itemCount: n,
+          itemBuilder: (context, k) {
+            final d = widget.dates[k];
+            final sel = k == widget.selectedIndex;
+            final line = scheme.outlineVariant;
+            return InkWell(
+              key: _keys[k],
+              onTap: () => widget.onSelect(k),
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 78,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('WK ${widget.project.weekNumber(d)}',
+                        style: TextStyle(
+                            fontSize: 9.5,
+                            letterSpacing: 0.6,
+                            fontWeight: FontWeight.w700,
+                            color: sel ? accent : scheme.onSurfaceVariant)),
+                    const SizedBox(height: 3),
+                    SizedBox(
+                      height: 14,
+                      child: Row(
+                        children: [
+                          Expanded(child: Container(height: 2, color: k == 0 ? Colors.transparent : line)),
+                          Container(
+                            width: sel ? 14 : 9,
+                            height: sel ? 14 : 9,
+                            decoration: BoxDecoration(
+                              color: sel ? accent : scheme.surface,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: sel ? accent : scheme.outline, width: 2),
+                            ),
+                          ),
+                          Expanded(child: Container(height: 2, color: k == n - 1 ? Colors.transparent : line)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(DateFormat('MMM d, yy').format(d),
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                            color: sel ? accent : scheme.onSurface)),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}

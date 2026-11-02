@@ -21,6 +21,7 @@ class HomeScreen extends StatelessWidget {
       location: r.location,
       description: r.description,
       buildingNames: r.buildings,
+      viewNames: r.views,
     );
     if (!context.mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectScreen(projectId: pr.id)));

@@ -19,16 +19,88 @@ const mediaTypeGroup = XTypeGroup(
 );
 
 class AddMediaResult {
-  AddMediaResult(this.day, this.buildingId, this.imported);
+  AddMediaResult(this.day, this.buildingId, this.viewId, this.imported);
   final DateTime day;
   final String buildingId;
+  final String viewId;
   final int imported;
+}
+
+/// Building + view dropdowns, with an inline "New view…" option.
+class BuildingViewPicker extends StatelessWidget {
+  const BuildingViewPicker({
+    super.key,
+    required this.project,
+    required this.buildingId,
+    required this.viewId,
+    required this.onChanged,
+  });
+
+  final Project project;
+  final String buildingId;
+  final String viewId;
+  final void Function(String buildingId, String viewId) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = project.buildingById(buildingId) ?? project.buildings.first;
+    return Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('b-${b.id}'),
+            initialValue: b.id,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Building / area', border: OutlineInputBorder()),
+            items: [
+              for (final x in project.buildings) DropdownMenuItem(value: x.id, child: Text(x.name)),
+            ],
+            onChanged: (v) {
+              if (v == null) return;
+              final nb = project.buildingById(v)!;
+              onChanged(v, nb.views.first.id);
+            },
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('v-${b.id}-$viewId-${b.views.length}'),
+            initialValue: b.viewById(viewId)?.id ?? b.views.first.id,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Camera view', border: OutlineInputBorder()),
+            items: [
+              for (final v in b.views) DropdownMenuItem(value: v.id, child: Text(v.name)),
+            ],
+            onChanged: (v) {
+              if (v != null) onChanged(b.id, v);
+            },
+          ),
+        ),
+        IconButton(
+          tooltip: 'Add a camera view to ${b.name}',
+          icon: const Icon(Icons.add_a_photo_outlined),
+          onPressed: () async {
+            final store = context.read<LibraryStore>();
+            final name = await promptText(context,
+                title: 'New camera view for ${b.name}',
+                label: 'View name (e.g. North elevation)',
+                confirmLabel: 'Add');
+            if (name == null || name.trim().isEmpty) return;
+            final nv = await store.addView(project, b, name);
+            onChanged(b.id, nv.id);
+          },
+        ),
+      ],
+    );
+  }
 }
 
 Future<AddMediaResult?> showAddMediaDialog(
   BuildContext context, {
   required Project project,
   String? buildingId,
+  String? viewId,
   DateTime? day,
   List<String> initialPaths = const [],
 }) {
@@ -38,6 +110,7 @@ Future<AddMediaResult?> showAddMediaDialog(
     builder: (_) => _AddMediaDialog(
       project: project,
       buildingId: buildingId,
+      viewId: viewId,
       day: day,
       initialPaths: initialPaths,
     ),
@@ -48,12 +121,14 @@ class _AddMediaDialog extends StatefulWidget {
   const _AddMediaDialog({
     required this.project,
     required this.buildingId,
+    required this.viewId,
     required this.day,
     required this.initialPaths,
   });
 
   final Project project;
   final String? buildingId;
+  final String? viewId;
   final DateTime? day;
   final List<String> initialPaths;
 
@@ -63,6 +138,7 @@ class _AddMediaDialog extends StatefulWidget {
 
 class _AddMediaDialogState extends State<_AddMediaDialog> {
   late String _buildingId;
+  late String _viewId;
   late DateTime _day;
   final _note = TextEditingController();
   final List<String> _paths = [];
@@ -75,6 +151,8 @@ class _AddMediaDialogState extends State<_AddMediaDialog> {
   void initState() {
     super.initState();
     _buildingId = widget.buildingId ?? widget.project.buildings.first.id;
+    final b = widget.project.buildingById(_buildingId)!;
+    _viewId = b.viewById(widget.viewId)?.id ?? b.views.first.id;
     final now = DateTime.now();
     _day = widget.day ?? DateTime(now.year, now.month, now.day);
     _addPaths(widget.initialPaths);
@@ -99,6 +177,7 @@ class _AddMediaDialogState extends State<_AddMediaDialog> {
     final result = await store.importMedia(
       widget.project,
       _buildingId,
+      _viewId,
       _day,
       List.of(_paths),
       note: _note.text,
@@ -126,7 +205,7 @@ class _AddMediaDialogState extends State<_AddMediaDialog> {
       );
       if (!mounted) return;
     }
-    Navigator.pop(context, AddMediaResult(_day, _buildingId, result.imported));
+    Navigator.pop(context, AddMediaResult(_day, _buildingId, _viewId, result.imported));
   }
 
   @override
@@ -158,21 +237,18 @@ class _AddMediaDialogState extends State<_AddMediaDialog> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  BuildingViewPicker(
+                    project: widget.project,
+                    buildingId: _buildingId,
+                    viewId: _viewId,
+                    onChanged: (b, v) => setState(() {
+                      _buildingId = b;
+                      _viewId = v;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _buildingId,
-                          decoration: const InputDecoration(
-                              labelText: 'Building / area', border: OutlineInputBorder()),
-                          items: [
-                            for (final b in widget.project.buildings)
-                              DropdownMenuItem(value: b.id, child: Text(b.name)),
-                          ],
-                          onChanged: (v) => setState(() => _buildingId = v ?? _buildingId),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
                       Expanded(
                         child: InkWell(
                           onTap: () async {
@@ -287,30 +363,30 @@ class _AddMediaDialogState extends State<_AddMediaDialog> {
   }
 }
 
-/// Move selected items to another building and/or date.
-Future<(String, DateTime)?> showMoveDialog(
-    BuildContext context, Project project, String buildingId, DateTime day) {
+/// Move selected items to another building, view and/or date.
+Future<(String, String, DateTime)?> showMoveDialog(
+    BuildContext context, Project project, String buildingId, String viewId, DateTime day) {
   var b = buildingId;
+  var v = viewId;
   var d = day;
-  return showDialog<(String, DateTime)>(
+  return showDialog<(String, String, DateTime)>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setS) => AlertDialog(
         title: const Text('Move to…'),
         content: SizedBox(
-          width: 400,
+          width: 480,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              DropdownButtonFormField<String>(
-                initialValue: b,
-                decoration:
-                    const InputDecoration(labelText: 'Building / area', border: OutlineInputBorder()),
-                items: [
-                  for (final x in project.buildings)
-                    DropdownMenuItem(value: x.id, child: Text(x.name)),
-                ],
-                onChanged: (v) => setS(() => b = v ?? b),
+              BuildingViewPicker(
+                project: project,
+                buildingId: b,
+                viewId: v,
+                onChanged: (nb, nv) => setS(() {
+                  b = nb;
+                  v = nv;
+                }),
               ),
               const SizedBox(height: 12),
               InkWell(
@@ -332,7 +408,7 @@ Future<(String, DateTime)?> showMoveDialog(
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, (b, d)), child: const Text('Move')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, (b, v, d)), child: const Text('Move')),
         ],
       ),
     ),
