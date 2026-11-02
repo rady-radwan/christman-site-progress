@@ -1,0 +1,105 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Generate platform folders (first run only)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path windows/runner)) {
+            flutter create --platforms=windows,android,ios --org com.christman --project-name christman_site_progress .
+            if ((Test-Path test/widget_test.dart) -and (Select-String -Path test/widget_test.dart -Pattern 'MyApp' -Quiet)) { Remove-Item test/widget_test.dart }
+            echo "GENERATED=1" >> $env:GITHUB_ENV
+          }
+
+      - name: Apply app name, icon and window settings
+        shell: pwsh
+        run: ./tool/patch_windows.ps1
+
+      - name: Commit generated platform folders
+        if: env.GENERATED == '1'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add windows android ios .metadata
+          git commit -m "Add Windows/Android/iOS platform folders (flutter create)"
+          git push
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Bundle Visual C++ runtime
+        shell: pwsh
+        run: |
+          $dest = "build/windows/x64/runner/Release"
+          foreach ($dll in 'msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll') {
+            Copy-Item "$env:WINDIR\System32\$dll" $dest -Force
+          }
+          Get-ChildItem $dest | Format-Table Name, Length
+
+      - name: Read version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          echo "APP_VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVersion=$env:APP_VERSION" installer/setup.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChristmanSiteProgress-Setup
+          path: dist/*.exe
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v$env:APP_VERSION"
+          $file = "dist/ChristmanSiteProgress-Setup-$env:APP_VERSION.exe"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $file --clobber
+          } else {
+            gh release create $tag $file --title "Christman Site Progress $env:APP_VERSION" --notes "Windows installer. Download the .exe below and run it."
+          }

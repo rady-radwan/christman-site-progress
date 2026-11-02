@@ -1,0 +1,31 @@
+name: christman_site_progress
+description: Week-by-week drone photo and video record of construction sites.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.2
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  file_selector: ^1.0.3
+  uuid: ^4.4.0
+  intl: any
+  desktop_drop: any
+  media_kit: any
+  media_kit_video: any
+  media_kit_libs_video: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
