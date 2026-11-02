@@ -16,6 +16,7 @@ import '../widgets/media_tile.dart';
 import '../widgets/timeline_bar.dart';
 import 'compare_screen.dart';
 import 'photo_viewer.dart';
+import 'timelapse_screen.dart';
 import 'video_player_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
@@ -360,6 +361,17 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   ),
                   icon: const Icon(Icons.compare_rounded),
                   label: const Text('Compare Progress'),
+                ),
+              if (pr.photoCount > 0)
+                TextButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => TimelapseScreen(project: pr, buildingId: _buildingId, viewId: _viewId),
+                    ),
+                  ),
+                  icon: const Icon(Icons.movie_creation_outlined),
+                  label: const Text('Make Timelapse'),
                 ),
               const SizedBox(width: 8),
               FilledButton.icon(

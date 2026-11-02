@@ -70,6 +70,31 @@ jobs:
           }
           Get-ChildItem $dest | Format-Table Name, Length
 
+      - name: Bundle ffmpeg (video encoder for timelapse export)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $rel = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } `
+            https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest
+          # Prefer the newest stable release branch; fall back to master.
+          $asset = $rel.assets | Where-Object { $_.name -match '^ffmpeg-n[\d.]+-latest-win64-gpl-[\d.]+\.zip$' } |
+            Sort-Object { [version](($_.name -replace '^ffmpeg-n([\d.]+)-.*$','$1') + '.0') } -Descending |
+            Select-Object -First 1
+          if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -eq 'ffmpeg-master-latest-win64-gpl.zip' } }
+          Write-Host "Using $($asset.name)"
+          Invoke-WebRequest $asset.browser_download_url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_dl
+          $exe = Get-ChildItem ffmpeg_dl -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          $dest = "build/windows/x64/runner/Release/ffmpeg"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item $exe.FullName "$dest/ffmpeg.exe"
+          $lic = Get-ChildItem ffmpeg_dl -Recurse -Filter LICENSE.txt | Select-Object -First 1
+          if ($lic) { Copy-Item $lic.FullName "$dest/LICENSE.txt" }
+          "FFmpeg build: $($asset.name)`nSource: https://github.com/BtbN/FFmpeg-Builds and https://ffmpeg.org" | Set-Content "$dest/README.txt"
+          & "$dest/ffmpeg.exe" -hide_banner -version | Select-Object -First 1
+          if (-not (& "$dest/ffmpeg.exe" -hide_banner -encoders | Select-String libx264)) { throw "libx264 missing" }
+
       - name: Read version
         shell: pwsh
         run: |

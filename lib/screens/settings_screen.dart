@@ -7,7 +7,7 @@ import '../main.dart' show themeMode;
 import '../models.dart';
 import '../util.dart';
 
-const appVersion = '1.1.0';
+const appVersion = '1.2.0';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});

@@ -10,6 +10,7 @@ A week-by-week record of construction sites from drone photos and videos.
 - **Same shot, next week** — in the photo viewer, ↑ / ↓ jumps to the same photo position in the previous/next week (handy for repeat drone waypoints).
 - **Compare Progress** — before/after slider, side by side, or overlay with transparency for each photo. Each photo has its own week slider, and zoom is linked.
 - **Videos** — per-week videos, or *Play all weeks in order* as one continuous playlist.
+- **Make Timelapse** — turn a building/view's weekly photos into an MP4 (720p–4K, 16:9, 1:1 or 9:16) with a live preview. Overlay the date, week, day counter, building, view, project name and notes; add a turning clock, flipping calendar or hourglass, a progress bar of capture dates, a title card, your logo and background music.
 - **Export originals** — any photo, selection, or whole date to a folder of your choice.
 
 ## Install (Windows)
@@ -28,3 +29,7 @@ flutter build windows --release
 ```
 
 Every push to `main` builds the Windows installer with GitHub Actions and attaches it to the release for the version in `pubspec.yaml`. Bump `version:` there to publish a new release.
+
+## Third-party
+
+Timelapse export uses [FFmpeg](https://ffmpeg.org) (GPL build from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)), shipped as a separate `ffmpeg\ffmpeg.exe` next to the app with its license.
