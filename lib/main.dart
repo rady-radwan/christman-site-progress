@@ -7,6 +7,8 @@ import 'screens/home_screen.dart';
 import 'theme.dart';
 
 final themeMode = ValueNotifier<ThemeMode>(ThemeMode.dark);
+// ignore: unused_element
+AppLifecycleListener? _lifecycle;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +23,8 @@ Future<void> main() async {
     _ => ThemeMode.dark,
   };
   themeMode.addListener(() => LibraryStore.setConfig('theme', themeMode.value.name));
+  // Coming back to the app: pick up anything colleagues added via Google Drive.
+  _lifecycle = AppLifecycleListener(onResume: () => store.refreshFromDisk());
   runApp(ChangeNotifierProvider<LibraryStore>.value(
     value: store,
     child: const SiteProgressApp(),

@@ -207,7 +207,7 @@ class _PhotoViewerState extends State<PhotoViewer> {
     if (m == null) return;
     final dir = await getDirectoryPath(confirmButtonText: 'Export here');
     if (dir == null || !mounted) return;
-    await _store.exportItems([m], dir, prefix: '${dayKey(_dates[_dayIndex])}_');
+    await _store.exportItems([m], dir);
     if (mounted) showSnack(context, 'Exported original to $dir');
   }
 
@@ -328,7 +328,7 @@ class _PhotoViewerState extends State<PhotoViewer> {
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
                     ),
                     Text(
-                      '${_photoIndex + 1} of $count · ${m.originalName} · $details',
+                      '${_photoIndex + 1} of $count · ${m.fileName} · $details · original: ${m.originalName}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white70, fontSize: 12),

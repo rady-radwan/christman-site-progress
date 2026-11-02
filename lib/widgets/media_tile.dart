@@ -91,6 +91,8 @@ class MediaTile extends StatefulWidget {
     required this.selecting,
     required this.selected,
     required this.onToggleSelect,
+    this.onTimelapse,
+    this.decodeWidth = 520,
   });
 
   final MediaItem item;
@@ -98,6 +100,10 @@ class MediaTile extends StatefulWidget {
   final bool selecting;
   final bool selected;
   final VoidCallback onToggleSelect;
+
+  /// Plays a timelapse of this building/view across all weeks.
+  final VoidCallback? onTimelapse;
+  final int decodeWidth;
 
   @override
   State<MediaTile> createState() => _MediaTileState();
@@ -111,84 +117,102 @@ class _MediaTileState extends State<MediaTile> {
     final scheme = Theme.of(context).colorScheme;
     final item = widget.item;
     final showCheck = widget.selecting || _hover;
+    final isVideo = item.type == MediaType.video;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.selecting ? widget.onToggleSelect : widget.onOpen,
-        onLongPress: widget.onToggleSelect,
-        onSecondaryTap: widget.onToggleSelect,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: widget.selected ? scheme.primary : Colors.transparent,
-              width: 3,
-            ),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardTheme.color,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: widget.selected ? scheme.primary : (Theme.of(context).dividerTheme.color ?? Colors.transparent),
+            width: widget.selected ? 3 : 1,
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                MediaThumb(item: item),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(8, 18, 8, 6),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Color(0xCC000000)],
-                      ),
-                    ),
-                    child: Row(
+          boxShadow: _hover ? const [BoxShadow(color: Color(0x33000000), blurRadius: 14, offset: Offset(0, 4))] : null,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(11),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: widget.selecting ? widget.onToggleSelect : widget.onOpen,
+                    onLongPress: widget.onToggleSelect,
+                    onSecondaryTap: widget.onToggleSelect,
+                    child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        if (item.type == MediaType.video)
-                          const Padding(
-                            padding: EdgeInsets.only(right: 4),
-                            child: Icon(Icons.videocam, size: 14, color: Colors.white70),
+                        MediaThumb(item: item, decodeWidth: widget.decodeWidth),
+                        if (showCheck)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: GestureDetector(
+                              onTap: widget.onToggleSelect,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: widget.selected ? scheme.primary : const Color(0x88000000),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 1.5),
+                                ),
+                                padding: const EdgeInsets.all(3),
+                                child: Icon(Icons.check,
+                                    size: 18, color: widget.selected ? Colors.white : Colors.white54),
+                              ),
+                            ),
                           ),
-                        Expanded(
-                          child: Text(
-                            item.originalName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 12),
-                          ),
-                        ),
-                        Text(prettySize(item.sizeBytes),
-                            style: const TextStyle(color: Colors.white70, fontSize: 11)),
                       ],
                     ),
                   ),
                 ),
-                if (showCheck)
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: GestureDetector(
-                      onTap: widget.onToggleSelect,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: widget.selected ? scheme.primary : const Color(0x88000000),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              SizedBox(
+                height: 50,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 4),
+                  child: Row(
+                    children: [
+                      Icon(isVideo ? Icons.videocam_outlined : Icons.photo_outlined,
+                          size: 18, color: scheme.onSurfaceVariant),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(item.fileName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                            Text(prettySize(item.sizeBytes),
+                                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                          ],
                         ),
-                        padding: const EdgeInsets.all(2),
-                        child: Icon(Icons.check,
-                            size: 16,
-                            color: widget.selected ? Colors.white : Colors.white54),
                       ),
-                    ),
+                      if (widget.onTimelapse != null)
+                        Tooltip(
+                          message: 'Play a timelapse of this view across all weeks',
+                          child: TextButton.icon(
+                            onPressed: widget.onTimelapse,
+                            icon: const Icon(Icons.movie_creation_outlined, size: 20),
+                            label: const Text('Timelapse'),
+                          ),
+                        ),
+                      IconButton(
+                        tooltip: isVideo ? 'Play video' : 'Open full size',
+                        onPressed: widget.onOpen,
+                        icon: Icon(isVideo ? Icons.play_circle_outline_rounded : Icons.open_in_full_rounded, size: 20),
+                      ),
+                    ],
                   ),
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

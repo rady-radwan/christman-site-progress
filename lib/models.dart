@@ -98,10 +98,13 @@ class MediaItem {
   final MediaType type;
 
   /// Path inside the library folder, always with forward slashes.
-  final String relativePath;
+  String relativePath;
   final String originalName;
   final int sizeBytes;
   final DateTime addedAt;
+
+  /// The coordinated name in the library, e.g. 2026-11-02_Hospital_Front_01.jpg
+  String get fileName => relativePath.split('/').last;
 
   String get extension {
     final i = originalName.lastIndexOf('.');
@@ -174,6 +177,8 @@ class Capture {
       );
 }
 
+enum CoverMode { auto, image, icon }
+
 class Project {
   Project({
     required this.id,
@@ -183,8 +188,18 @@ class Project {
     required this.createdAt,
     List<Building>? buildings,
     List<Capture>? captures,
+    this.coverMode = CoverMode.auto,
+    this.coverImage,
+    this.coverIcon = 'apartment',
+    this.coverColor = 0xFFE8742A,
   })  : buildings = buildings ?? [],
         captures = captures ?? [];
+
+  /// How the project card looks on the home page.
+  CoverMode coverMode;
+  String? coverImage; // relative path inside the library
+  String coverIcon; // key in projectIcons (see widgets/project_cover.dart)
+  int coverColor;
 
   final String id;
   String name;
@@ -281,6 +296,17 @@ class Project {
     return captures.map((c) => c.date).reduce((a, b) => a.isAfter(b) ? a : b);
   }
 
+  DateTime? get firstCaptureDate {
+    if (captures.isEmpty) return null;
+    return captures.map((c) => c.date).reduce((a, b) => a.isBefore(b) ? a : b);
+  }
+
+  /// Number of distinct capture dates across the project.
+  int get captureDateCount => captures.map((c) => dayKey(c.date)).toSet().length;
+
+  int get totalBytes =>
+      captures.fold(0, (s, c) => s + c.items.fold(0, (s2, m) => s2 + m.sizeBytes));
+
   int get photoCount =>
       captures.fold(0, (s, c) => s + c.items.where((m) => m.type == MediaType.photo).length);
   int get videoCount =>
@@ -292,6 +318,10 @@ class Project {
         'location': location,
         'description': description,
         'createdAt': createdAt.toIso8601String(),
+        'coverMode': coverMode.name,
+        if (coverImage != null) 'coverImage': coverImage,
+        'coverIcon': coverIcon,
+        'coverColor': coverColor,
         'buildings': buildings.map((e) => e.toJson()).toList(),
         'captures': captures.map((e) => e.toJson()).toList(),
       };
@@ -302,6 +332,10 @@ class Project {
         location: j['location'] as String? ?? '',
         description: j['description'] as String? ?? '',
         createdAt: DateTime.tryParse(j['createdAt'] as String? ?? '') ?? DateTime.now(),
+        coverMode: CoverMode.values.firstWhere((m) => m.name == j['coverMode'], orElse: () => CoverMode.auto),
+        coverImage: j['coverImage'] as String?,
+        coverIcon: j['coverIcon'] as String? ?? 'apartment',
+        coverColor: (j['coverColor'] as num?)?.toInt() ?? 0xFFE8742A,
         buildings: ((j['buildings'] as List?) ?? [])
             .map((e) => Building.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),

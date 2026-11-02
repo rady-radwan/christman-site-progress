@@ -2,9 +2,11 @@
 
 A week-by-week record of construction sites from drone photos and videos.
 
-- **Many projects, many buildings** — each project holds its own buildings/areas.
+- **Many projects, many buildings** — each project holds its own buildings/areas, with a cover (latest drone photo, your own picture, or an icon), its location, and live counts of buildings, capture dates, photos and videos.
 - **Camera views per building** — Front, Back, Side, 45° angle, or your own. Shoot the same angle and elevation every week and each view gets its own timeline.
 - **Timeline bar** — every capture date is a stop on the bar along the bottom. Click a week (or use ← / →) to see the site as it was then; press ▶ to play week by week.
+- **Coordinated file names** — files are stored as `Project/Building/View/2026-11-02_Building_View_01.jpg` and renamed automatically when you rename a building or view or change a date. The camera's original name is kept for reference.
+- **Share through Google Drive** — Settings › Cloud & sharing moves the library into Google Drive (or OneDrive/Dropbox). Colleagues open the same shared folder and see the same projects; the app merges changes from every computer and checks for updates every 20 seconds.
 - **Original quality** — every photo and video is copied into the library byte-for-byte. Nothing is resized or recompressed. Photos open at full resolution and zoom to actual pixels.
 - **Back-dating** — pick any capture date when adding files, so older history can be added too.
 - **Same shot, next week** — in the photo viewer, ↑ / ↓ jumps to the same photo position in the previous/next week (handy for repeat drone waypoints).

@@ -188,11 +188,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
             if (_selected.contains(m.id)) m
       ];
 
-  Future<void> _export(List<MediaItem> items, {String prefix = ''}) async {
+  Future<void> _export(List<MediaItem> items) async {
     if (items.isEmpty) return;
     final dir = await getDirectoryPath(confirmButtonText: 'Export here');
     if (dir == null || !mounted) return;
-    final n = await _store.exportItems(items, dir, prefix: prefix);
+    final n = await _store.exportItems(items, dir);
     if (!mounted) return;
     showSnack(context, 'Exported $n original file${n == 1 ? '' : 's'}');
     if (isDesktop) openInFileManager(dir);
@@ -286,6 +286,15 @@ class _ProjectScreenState extends State<ProjectScreen> {
           labels: labels,
           startIndex: start,
         ),
+      ),
+    );
+  }
+
+  void _quickTimelapse(Project pr, String buildingId, String viewId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TimelapseScreen(project: pr, buildingId: buildingId, viewId: viewId, autoPlay: true),
       ),
     );
   }
@@ -388,8 +397,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       [
                         ...pr.mediaOn(day, _buildingId, MediaType.photo, viewId: _viewId),
                         ...pr.mediaOn(day, _buildingId, MediaType.video, viewId: _viewId),
-                      ],
-                      prefix: '${dayKey(day)}_',
+                      ]
                     );
                   }
                   if (v == 'date' && day != null) _changeDate(pr, day);
@@ -768,10 +776,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
 
     final caps = pr.capturesOn(day, _buildingId, viewId: _viewId);
-    final groups = <(String, List<MediaItem>)>[];
+    final groups = <(String, List<MediaItem>, Capture)>[];
     for (final c in caps) {
       final items = c.items.where((m) => m.type == _type).toList();
-      if (items.isNotEmpty) groups.add((pr.labelFor(c), items));
+      if (items.isNotEmpty) groups.add((pr.labelFor(c), items, c));
     }
 
     if (groups.isEmpty) {
@@ -795,77 +803,96 @@ class _ProjectScreenState extends State<ProjectScreen> {
     final allOfType = [for (final g in groups) ...g.$2];
     final showGroupTitles = _viewId == null;
 
-    return CustomScrollView(
-      slivers: [
-        if (_type == MediaType.video)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-              child: Wrap(
-                spacing: 8,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: () => _playVideos(
-                        pr, allOfType, 0, List.filled(allOfType.length, prettyDay(day))),
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('Play this week'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _playAllWeeks(pr),
-                    icon: const Icon(Icons.playlist_play_rounded),
-                    label: const Text('Play all weeks in order'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        for (final g in groups) ...[
-          if (showGroupTitles)
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    return LayoutBuilder(builder: (context, box) {
+      const spacing = 16.0;
+      return CustomScrollView(
+        slivers: [
+          if (_type == MediaType.video)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                child: Text(g.$1,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: () => _playVideos(
+                          pr, allOfType, 0, List.filled(allOfType.length, prettyDay(day))),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: const Text('Play this week'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _playAllWeeks(pr),
+                      icon: const Icon(Icons.playlist_play_rounded),
+                      label: const Text('Play all weeks in order'),
+                    ),
+                  ],
+                ),
               ),
             ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 340,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 4 / 3,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, i) {
-                  final m = g.$2[i];
-                  return MediaTile(
-                    key: ValueKey(m.id),
-                    item: m,
-                    selecting: selecting,
-                    selected: _selected.contains(m.id),
-                    onToggleSelect: () => setState(() {
-                      if (!_selected.remove(m.id)) _selected.add(m.id);
-                    }),
-                    onOpen: () {
-                      if (m.type == MediaType.video) {
-                        final idx = allOfType.indexOf(m);
-                        _playVideos(pr, allOfType, idx < 0 ? 0 : idx,
-                            List.filled(allOfType.length, prettyDay(day)));
-                      } else {
-                        _openPhoto(pr, dates, day, m);
-                      }
+          for (final g in groups) ...() {
+            // Few photos → big and centered; many → a comfortable grid.
+            final n = g.$2.length;
+            final maxW = n == 1 ? 1150.0 : (n == 2 ? 1600.0 : 1800.0);
+            final avail = box.maxWidth - 40;
+            final contentW = avail < maxW ? avail : maxW;
+            final side = (box.maxWidth - contentW) / 2;
+            final cols = n == 1 ? 1 : (n == 2 ? 2 : (contentW / 440).floor().clamp(2, 6));
+            final tileW = (contentW - spacing * (cols - 1)) / cols;
+            final tileH = tileW * 0.75 + 50;
+            return [
+              if (showGroupTitles)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(side, 18, side, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: Text(g.$1, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                  ),
+                ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(side, 12, side, 20),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: cols,
+                    mainAxisSpacing: spacing,
+                    crossAxisSpacing: spacing,
+                    mainAxisExtent: tileH,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      final m = g.$2[i];
+                      return MediaTile(
+                        key: ValueKey(m.id),
+                        item: m,
+                        decodeWidth: (tileW * dpr).clamp(400, 2400).round(),
+                        selecting: selecting,
+                        selected: _selected.contains(m.id),
+                        onToggleSelect: () => setState(() {
+                          if (!_selected.remove(m.id)) _selected.add(m.id);
+                        }),
+                        onTimelapse: m.type == MediaType.photo
+                            ? () => _quickTimelapse(pr, g.$3.buildingId, g.$3.viewId)
+                            : null,
+                        onOpen: () {
+                          if (m.type == MediaType.video) {
+                            final idx = allOfType.indexOf(m);
+                            _playVideos(pr, allOfType, idx < 0 ? 0 : idx,
+                                List.filled(allOfType.length, prettyDay(day)));
+                          } else {
+                            _openPhoto(pr, dates, day, m);
+                          }
+                        },
+                      );
                     },
-                  );
-                },
-                childCount: g.$2.length,
+                    childCount: n,
+                  ),
+                ),
               ),
-            ),
-          ),
+            ];
+          }(),
         ],
-      ],
-    );
+      );
+    });
   }
 }
 

@@ -18,11 +18,20 @@ import '../util.dart';
 
 /// Make Timelapse: pick photos, style the overlays, preview live, export MP4.
 class TimelapseScreen extends StatefulWidget {
-  const TimelapseScreen({super.key, required this.project, this.buildingId, this.viewId});
+  const TimelapseScreen({
+    super.key,
+    required this.project,
+    this.buildingId,
+    this.viewId,
+    this.autoPlay = false,
+  });
 
   final Project project;
   final String? buildingId;
   final String? viewId;
+
+  /// Opened from the play button under a photo: start playing, options hidden.
+  final bool autoPlay;
 
   @override
   State<TimelapseScreen> createState() => _TimelapseScreenState();
@@ -44,6 +53,7 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
   int _playFromFrame = 0;
   bool _playing = false;
   bool _exporting = false;
+  late bool _panelOpen = !widget.autoPlay;
   final _titleC = TextEditingController();
   final _subtitleC = TextEditingController();
 
@@ -69,8 +79,12 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
       _s = TimelapseSettings.fromJson((cfg['timelapse'] as Map?)?.cast<String, dynamic>());
       _logo = logo;
       _replan();
-      _frame = _plan.titleFrames > 0 ? (_plan.titleFrames * 0.5).round() : 0;
+      _frame = widget.autoPlay ? 0 : (_plan.titleFrames > 0 ? (_plan.titleFrames * 0.5).round() : 0);
     });
+    if (widget.autoPlay && _plan.slots.isNotEmpty) {
+      await _cache.ensure([0, 1, 2]);
+      if (mounted && !_playing) _togglePlay();
+    }
   }
 
   @override
@@ -307,6 +321,12 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
             ],
           ),
           actions: [
+            TextButton.icon(
+              onPressed: () => setState(() => _panelOpen = !_panelOpen),
+              icon: Icon(_panelOpen ? Icons.chevron_right_rounded : Icons.tune_rounded),
+              label: Text(_panelOpen ? 'Hide options' : 'Customize'),
+            ),
+            const SizedBox(width: 8),
             FilledButton.icon(
               onPressed: _plan.slots.isEmpty || _exporting ? null : _export,
               icon: const Icon(Icons.movie_creation_outlined),
@@ -345,8 +365,8 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
                 ),
               ),
             ),
-            const VerticalDivider(width: 1),
-            SizedBox(width: 400, child: _panel()),
+            if (_panelOpen) const VerticalDivider(width: 1),
+            if (_panelOpen) SizedBox(width: 400, child: _panel()),
           ],
         ),
       ),
