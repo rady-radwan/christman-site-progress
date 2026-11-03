@@ -1,7 +1,7 @@
 name: christman_site_progress
 description: Week-by-week drone photo and video record of construction sites.
 publish_to: 'none'
-version: 1.5.0+6
+version: 1.6.0+7
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

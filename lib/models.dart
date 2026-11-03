@@ -92,10 +92,21 @@ class MediaItem {
     required this.originalName,
     required this.sizeBytes,
     required this.addedAt,
+    this.addedBy,
+    this.addedById,
+    this.seq,
   });
 
   final String id;
   final MediaType type;
+
+  /// Who added it (name and user id), for shared libraries.
+  final String? addedBy;
+  final String? addedById;
+
+  /// Number within its capture, fixed when added so names never shuffle
+  /// when other photos are deleted.
+  int? seq;
 
   /// Path inside the library folder, always with forward slashes.
   String relativePath;
@@ -121,6 +132,9 @@ class MediaItem {
         'originalName': originalName,
         'size': sizeBytes,
         'addedAt': addedAt.toIso8601String(),
+        if (addedBy != null) 'addedBy': addedBy,
+        if (addedById != null) 'addedById': addedById,
+        if (seq != null) 'seq': seq,
       };
 
   factory MediaItem.fromJson(Map<String, dynamic> j) => MediaItem(
@@ -130,6 +144,9 @@ class MediaItem {
         originalName: j['originalName'] as String,
         sizeBytes: (j['size'] as num?)?.toInt() ?? 0,
         addedAt: DateTime.tryParse(j['addedAt'] as String? ?? '') ?? DateTime.now(),
+        addedBy: j['addedBy'] as String?,
+        addedById: j['addedById'] as String?,
+        seq: (j['seq'] as num?)?.toInt(),
       );
 }
 
@@ -343,4 +360,109 @@ class Project {
             .map((e) => Capture.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
       );
+}
+
+
+/// The person using this copy of the app.
+class AppUser {
+  const AppUser({required this.id, required this.name});
+  final String id;
+  final String name;
+
+  String get initials => initialsOf(name);
+}
+
+String initialsOf(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return '';
+  if (parts.length == 1) return parts.first.substring(0, parts.first.length.clamp(0, 2)).toUpperCase();
+  return (parts.first[0] + parts.last[0]).toUpperCase();
+}
+
+/// One line in the team activity feed.
+class Activity {
+  Activity({
+    required this.id,
+    required this.at,
+    required this.userId,
+    required this.userName,
+    required this.text,
+    this.projectId,
+    this.projectName,
+  });
+
+  final String id;
+  final DateTime at;
+  final String userId;
+  final String userName;
+  final String text;
+  final String? projectId;
+  final String? projectName;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'at': at.toUtc().toIso8601String(),
+        'userId': userId,
+        'userName': userName,
+        'text': text,
+        if (projectId != null) 'projectId': projectId,
+        if (projectName != null) 'projectName': projectName,
+      };
+
+  static Activity? tryParse(Map<String, dynamic> j) {
+    try {
+      return Activity(
+        id: j['id'] as String,
+        at: DateTime.parse(j['at'] as String).toLocal(),
+        userId: j['userId'] as String,
+        userName: j['userName'] as String? ?? 'Someone',
+        text: j['text'] as String,
+        projectId: j['projectId'] as String?,
+        projectName: j['projectName'] as String?,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// A person who uses the shared library (one file per person in team/).
+class Member {
+  Member({
+    required this.id,
+    required this.name,
+    required this.lastSeen,
+    this.computer = '',
+    this.readOnly = false,
+  });
+
+  final String id;
+  final String name;
+  final DateTime lastSeen;
+  final String computer;
+  final bool readOnly;
+
+  String get initials => initialsOf(name);
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'lastSeen': lastSeen.toUtc().toIso8601String(),
+        'computer': computer,
+        'readOnly': readOnly,
+      };
+
+  static Member? tryParse(Map<String, dynamic> j) {
+    try {
+      return Member(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        lastSeen: DateTime.parse(j['lastSeen'] as String).toLocal(),
+        computer: j['computer'] as String? ?? '',
+        readOnly: j['readOnly'] as bool? ?? false,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 }

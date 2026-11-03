@@ -195,7 +195,13 @@ class _MediaTileState extends State<MediaTile> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                            Text(prettySize(item.sizeBytes),
+                            Text(
+                                [
+                                  prettySize(item.sizeBytes),
+                                  if (item.addedBy != null) 'added by ${item.addedBy}',
+                                ].join(' · '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
                           ],
                         ),

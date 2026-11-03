@@ -16,6 +16,7 @@ import '../util.dart';
 import '../widgets/media_tile.dart';
 import '../widgets/timeline_bar.dart';
 import 'compare_screen.dart';
+import 'home_screen.dart' show ViewOnlyBanner;
 import 'photo_viewer.dart';
 import 'timelapse_screen.dart';
 import 'video_player_screen.dart';
@@ -40,6 +41,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
   final _focus = FocusNode();
 
   LibraryStore get _store => context.read<LibraryStore>();
+
+  /// Viewers of a shared Drive folder can look and export, not change things.
+  bool _blockedReadOnly() {
+    if (!_store.readOnly) return false;
+    showSnack(context, 'View only — ask the folder owner for Editor access in Google Drive.');
+    return true;
+  }
 
   @override
   void dispose() {
@@ -110,6 +118,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   // ------------------------------------------------------------ actions
 
   Future<void> _addMedia(Project pr, {List<String> paths = const []}) async {
+    if (_blockedReadOnly()) return;
     final r = await showAddMediaDialog(
       context,
       project: pr,
@@ -127,6 +136,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _addBuilding(Project pr) async {
+    if (_blockedReadOnly()) return;
     final r = await showBuildingDialog(context);
     if (r == null || r.name.trim().isEmpty) return;
     final b = await _store.addBuilding(pr, r.name, viewNames: r.views);
@@ -134,6 +144,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _addView(Project pr, Building b) async {
+    if (_blockedReadOnly()) return;
     final name = await promptText(context,
         title: 'New camera view for ${b.name}',
         label: 'View name (e.g. North elevation, Roof)',
@@ -144,12 +155,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _renameView(Project pr, BuildingView v) async {
+    if (_blockedReadOnly()) return;
     final name = await promptText(context, title: 'Rename view', initial: v.name);
     if (name == null || name.trim().isEmpty) return;
     await _store.renameView(pr, v, name);
   }
 
   Future<void> _deleteView(Project pr, Building b, BuildingView v) async {
+    if (_blockedReadOnly()) return;
     if (b.views.length == 1) {
       showSnack(context, 'A building needs at least one camera view.');
       return;
@@ -166,12 +179,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _renameBuilding(Project pr, Building b) async {
+    if (_blockedReadOnly()) return;
     final name = await promptText(context, title: 'Rename building', initial: b.name);
     if (name == null || name.trim().isEmpty) return;
     await _store.renameBuilding(pr, b, name);
   }
 
   Future<void> _deleteBuilding(Project pr, Building b) async {
+    if (_blockedReadOnly()) return;
     if (pr.buildings.length == 1) {
       showSnack(context, 'A project needs at least one building or area.');
       return;
@@ -202,6 +217,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _deleteSelected(Project pr) async {
+    if (_blockedReadOnly()) return;
     final items = _selectedItems(pr);
     final ok = await confirm(context,
         title: 'Delete ${items.length} item${items.length == 1 ? '' : 's'}?',
@@ -212,6 +228,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _moveSelected(Project pr, DateTime day) async {
+    if (_blockedReadOnly()) return;
     final items = _selectedItems(pr);
     if (items.isEmpty) return;
     final from = _store.captureContaining(pr, items.first);
@@ -227,6 +244,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _changeDate(Project pr, DateTime day) async {
+    if (_blockedReadOnly()) return;
     final d = await pickDay(context, day);
     if (d == null || dayKey(d) == dayKey(day)) return;
     await _store.changeDate(pr, day, d, _buildingId, viewId: _viewId);
@@ -234,6 +252,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _deleteDay(Project pr, DateTime day) async {
+    if (_blockedReadOnly()) return;
     final caps = pr.capturesOn(day, _buildingId, viewId: _viewId);
     final n = caps.fold<int>(0, (s, c) => s + c.items.length);
     final where = _scopeLabel(pr);
@@ -266,6 +285,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 
   Future<void> _editNote(Project pr, Capture c) async {
+    if (_blockedReadOnly()) return;
     final text = await promptText(context,
         title: 'Note — ${pr.labelFor(c)}, ${prettyDay(c.date)}',
         initial: c.note,
@@ -399,11 +419,12 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   label: const Text('Make Timelapse'),
                 ),
               const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: () => _addMedia(pr),
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('Add photos & videos'),
-              ),
+              if (!store.readOnly)
+                FilledButton.icon(
+                  onPressed: () => _addMedia(pr),
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: const Text('Add photos & videos'),
+                ),
               PopupMenuButton<String>(
                 tooltip: 'More',
                 onSelected: (v) {
@@ -446,6 +467,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   final wide = c.maxWidth >= 760;
                   final content = Column(
                     children: [
+                      if (store.readOnly) const ViewOnlyBanner(),
                       if (!wide) _buildingChips(pr),
                       _header(pr, day, selecting),
                       const Divider(),

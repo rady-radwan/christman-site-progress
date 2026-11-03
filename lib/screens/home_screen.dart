@@ -11,6 +11,7 @@ import '../util.dart';
 import '../widgets/project_cover.dart';
 import 'project_screen.dart';
 import 'settings_screen.dart';
+import 'team_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -43,7 +44,7 @@ class HomeScreen extends StatelessWidget {
     final buildings = projects.fold<int>(0, (s, p) => s + p.buildings.length);
 
     return Scaffold(
-      floatingActionButton: projects.isEmpty
+      floatingActionButton: projects.isEmpty || store.readOnly
           ? null
           : FloatingActionButton.extended(
               onPressed: () => _newProject(context),
@@ -106,6 +107,11 @@ class HomeScreen extends StatelessWidget {
                 ),
                 const _SyncChip(),
                 const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TeamScreen())),
+                  icon: const Icon(Icons.groups_rounded),
+                  label: const Text('Team'),
+                ),
                 IconButton(
                   tooltip: 'Settings',
                   icon: const Icon(Icons.settings_outlined),
@@ -115,10 +121,11 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
+          if (store.readOnly) const ViewOnlyBanner(),
           // ---------------- projects
           Expanded(
             child: projects.isEmpty
-                ? _Empty(onCreate: () => _newProject(context))
+                ? _Empty(onCreate: store.readOnly ? null : () => _newProject(context))
                 : LayoutBuilder(
                     builder: (context, c) {
                       final cols = (c.maxWidth / 420).floor().clamp(1, 5);
@@ -146,7 +153,7 @@ const brandSlateText = Color(0xFF1E2A33);
 
 class _Empty extends StatelessWidget {
   const _Empty({required this.onCreate});
-  final VoidCallback onCreate;
+  final VoidCallback? onCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -165,11 +172,12 @@ class _Empty extends StatelessWidget {
           Wrap(
             spacing: 12,
             children: [
-              FilledButton.icon(
-                onPressed: onCreate,
-                icon: const Icon(Icons.add),
-                label: const Text('Create your first project'),
-              ),
+              if (onCreate != null)
+                FilledButton.icon(
+                  onPressed: onCreate,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create your first project'),
+                ),
               OutlinedButton.icon(
                 onPressed: () =>
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
@@ -275,6 +283,7 @@ class _ProjectCard extends StatelessWidget {
                             style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
                       ),
                     ),
+                  if (!context.read<LibraryStore>().readOnly)
                   Positioned(
                     right: 6,
                     top: 6,
@@ -312,7 +321,7 @@ class _ProjectCard extends StatelessWidget {
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 4),
                   InkWell(
-                    onTap: project.location.isEmpty ? () => _edit(context) : null,
+                    onTap: project.location.isEmpty && !context.read<LibraryStore>().readOnly ? () => _edit(context) : null,
                     child: Row(
                       children: [
                         Icon(Icons.place_outlined, size: 16, color: scheme.primary),
@@ -395,6 +404,33 @@ class _Stat extends StatelessWidget {
             Text(label, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Shown when the shared Google Drive folder is view-only for this person.
+class ViewOnlyBanner extends StatelessWidget {
+  const ViewOnlyBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      color: scheme.tertiaryContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          Icon(Icons.visibility_outlined, color: scheme.onTertiaryContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'View only — you can browse, compare and export, but not add or change anything. '
+              'Ask the folder owner for Editor access in Google Drive.',
+              style: TextStyle(color: scheme.onTertiaryContainer),
+            ),
+          ),
+        ],
       ),
     );
   }

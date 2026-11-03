@@ -11,6 +11,7 @@ void main() {
   late Directory src;
 
   setUp(() async {
+    LibraryStore.user = const AppUser(id: 'user-rady', name: 'Rady Radwan');
     tmp = await Directory.systemTemp.createTemp('csp_lib');
     src = await Directory.systemTemp.createTemp('csp_src');
     for (final n in ['DJI_0001.JPG', 'DJI_0002.JPG', 'DJI_0003.MP4']) {
@@ -33,10 +34,11 @@ void main() {
     expect(r.imported, 3);
     final names = pr.captures.single.items.map((m) => m.fileName).toList();
     expect(names, [
-      '2026-11-02_Overall-Site_Front_01.jpg',
-      '2026-11-02_Overall-Site_Front_02.jpg',
-      '2026-11-02_Overall-Site_Front_03.mp4',
+      '2026-11-02_Overall-Site_Front_01_RR.jpg',
+      '2026-11-02_Overall-Site_Front_02_RR.jpg',
+      '2026-11-02_Overall-Site_Front_03_RR.mp4',
     ]);
+    expect(pr.captures.single.items.first.addedBy, 'Rady Radwan');
     for (final m in pr.captures.single.items) {
       expect(await store.fileFor(m).exists(), isTrue, reason: m.relativePath);
       expect(m.relativePath, startsWith('projects/Newcastle-Medical_'));
@@ -45,15 +47,25 @@ void main() {
 
     await store.renameBuilding(pr, b, 'Hospital');
     final first = pr.captures.single.items.first;
-    expect(first.fileName, '2026-11-02_Hospital_Front_01.jpg');
+    expect(first.fileName, '2026-11-02_Hospital_Front_01_RR.jpg');
     expect(await store.fileFor(first).exists(), isTrue);
 
     await store.deleteMedia(pr, [first]);
-    expect(pr.captures.single.items.first.fileName, '2026-11-02_Hospital_Front_01.jpg');
+    // Numbers stay fixed so files never shuffle names on teammates' computers.
+    expect(pr.captures.single.items.first.fileName, '2026-11-02_Hospital_Front_02_RR.jpg');
     expect(await store.fileFor(pr.captures.single.items.first).exists(), isTrue);
 
     await store.changeDate(pr, DateTime(2026, 11, 2), DateTime(2026, 11, 9), b.id);
-    expect(pr.captures.single.items.first.fileName, '2026-11-09_Hospital_Front_01.jpg');
+    expect(pr.captures.single.items.first.fileName, '2026-11-09_Hospital_Front_02_RR.jpg');
+
+    // Everything was written to Rady's own activity file.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final feed = await store.readActivity();
+    expect(feed.any((a) => a.text.startsWith('added 2 photos and 1 video')), isTrue);
+    expect(feed.any((a) => a.text.contains('renamed building Overall Site to Hospital')), isTrue);
+    await store.heartbeat();
+    final members = await store.readMembers();
+    expect(members.single.name, 'Rady Radwan');
     expect(await store.fileFor(pr.captures.single.items.first).exists(), isTrue);
   });
 

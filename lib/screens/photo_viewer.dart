@@ -328,7 +328,7 @@ class _PhotoViewerState extends State<PhotoViewer> {
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
                     ),
                     Text(
-                      '${_photoIndex + 1} of $count · ${m.fileName} · $details · original: ${m.originalName}',
+                      '${_photoIndex + 1} of $count · ${m.fileName} · $details · original: ${m.originalName}${m.addedBy == null ? '' : ' · added by ${m.addedBy}'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white70, fontSize: 12),

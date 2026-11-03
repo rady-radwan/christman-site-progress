@@ -38,6 +38,141 @@ class LibraryStore extends ChangeNotifier {
   DateTime? lastSynced;
   int changesFromOthers = 0;
 
+  /// Who is using the app on this computer. Set once at start-up.
+  static AppUser? user;
+
+  /// True when the shared folder can't be written (a Google Drive "Viewer").
+  bool readOnly = false;
+
+  /// Called with teammates' new activity found while checking for changes.
+  void Function(List<Activity> fresh)? onTeamActivity;
+  DateTime _noticesSince = DateTime.now();
+  int _ticks = 0;
+
+  // ---------------------------------------------------------------- team
+
+  Directory get teamDir => Directory(p.join(root.path, 'team'));
+
+  /// Repaint everything that shows store data (e.g. after a name change).
+  void touch() => notifyListeners();
+
+  Future<bool> _checkWritable() async {
+    try {
+      await teamDir.create(recursive: true);
+      final probe = File(p.join(teamDir.path, '.write-test-${user?.id ?? Platform.localHostname}'));
+      await probe.writeAsString('ok', flush: true);
+      await probe.delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Each person writes only their own files in team/, so Google Drive never
+  /// has two computers editing the same file.
+  Future<void> heartbeat() async {
+    final u = user;
+    if (u == null) return;
+    try {
+      await teamDir.create(recursive: true);
+      final m = Member(
+        id: u.id,
+        name: u.name,
+        lastSeen: DateTime.now(),
+        computer: Platform.localHostname,
+        readOnly: readOnly,
+      );
+      await File(p.join(teamDir.path, 'member-${u.id}.json')).writeAsString(jsonEncode(m.toJson()));
+    } catch (_) {}
+  }
+
+  Future<void> _log(String text, {Project? pr}) async {
+    final u = user;
+    if (u == null || readOnly) return;
+    final a = Activity(
+      id: _uuid.v4(),
+      at: DateTime.now(),
+      userId: u.id,
+      userName: u.name,
+      text: text,
+      projectId: pr?.id,
+      projectName: pr?.name,
+    );
+    try {
+      await teamDir.create(recursive: true);
+      await File(p.join(teamDir.path, 'activity-${u.id}.jsonl'))
+          .writeAsString('${jsonEncode(a.toJson())}\n', mode: FileMode.append, flush: true);
+    } catch (_) {}
+  }
+
+  Future<List<Member>> readMembers() async {
+    final out = <Member>[];
+    try {
+      if (!await teamDir.exists()) return out;
+      await for (final e in teamDir.list()) {
+        if (e is File && p.basename(e.path).startsWith('member-') && e.path.endsWith('.json')) {
+          try {
+            final m = Member.tryParse(jsonDecode(await e.readAsString()) as Map<String, dynamic>);
+            if (m != null) out.add(m);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    out.sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+    return out;
+  }
+
+  /// Everyone's activity, newest first.
+  Future<List<Activity>> readActivity({DateTime? since, bool othersOnly = false, int limit = 400}) async {
+    final out = <Activity>[];
+    try {
+      if (!await teamDir.exists()) return out;
+      await for (final e in teamDir.list()) {
+        if (e is! File) continue;
+        final name = p.basename(e.path);
+        if (!name.startsWith('activity-') || !name.endsWith('.jsonl')) continue;
+        if (othersOnly && user != null && name == 'activity-${user!.id}.jsonl') continue;
+        if (since != null) {
+          final st = await e.stat();
+          if (st.modified.isBefore(since.subtract(const Duration(minutes: 2)))) continue;
+        }
+        try {
+          for (final line in await e.readAsLines()) {
+            if (line.trim().isEmpty) continue;
+            final a = Activity.tryParse(jsonDecode(line) as Map<String, dynamic>);
+            if (a != null && (since == null || a.at.isAfter(since))) out.add(a);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    out.sort((a, b) => b.at.compareTo(a.at));
+    return out.length > limit ? out.sublist(0, limit) : out;
+  }
+
+  Future<void> _checkTeamNotices() async {
+    if (onTeamActivity == null) return;
+    final since = _noticesSince;
+    final fresh = await readActivity(since: since, othersOnly: true, limit: 20);
+    if (fresh.isNotEmpty) {
+      _noticesSince = fresh.first.at;
+      onTeamActivity?.call(fresh);
+    }
+  }
+
+  /// Items added by each person, for the Team page.
+  Map<String, int> itemsAddedBy() {
+    final out = <String, int>{};
+    for (final pr in projects) {
+      for (final c in pr.captures) {
+        for (final m in c.items) {
+          final k = m.addedById ?? '';
+          if (k.isNotEmpty) out[k] = (out[k] ?? 0) + 1;
+        }
+      }
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- open
 
   static Future<File> _configFile() async {
@@ -74,6 +209,7 @@ class LibraryStore extends ChangeNotifier {
     final data = await _read(root);
     final store = LibraryStore._(root, data.projects, data.deleted);
     store._diskStamp = await _stamp(store._libraryFile);
+    store._migrate();
     return store;
   }
 
@@ -93,11 +229,15 @@ class LibraryStore extends ChangeNotifier {
     final store = LibraryStore._(root, data.projects, data.deleted);
     store._diskStamp = await _stamp(store._libraryFile);
     store.lastSynced = DateTime.now();
+    store.readOnly = !await store._checkWritable();
     var changed = store._migrate();
-    for (final pr in store.projects) {
-      if (await store._syncNames(pr)) changed = true;
+    if (!store.readOnly) {
+      for (final pr in store.projects) {
+        if (await store._syncNames(pr)) changed = true;
+      }
+      if (changed) await store.save();
     }
-    if (changed) await store.save();
+    await store.heartbeat();
     store._poll = Timer.periodic(const Duration(seconds: 20), (_) => store.refreshFromDisk());
     return store;
   }
@@ -127,6 +267,12 @@ class LibraryStore extends ChangeNotifier {
           if (b.viewById(c.viewId) == null) {
             c.viewId = b.views.first.id;
             changed = true;
+          }
+          for (var i = 0; i < c.items.length; i++) {
+            if (c.items[i].seq == null) {
+              c.items[i].seq = i + 1;
+              changed = true;
+            }
           }
         }
       }
@@ -196,6 +342,8 @@ class LibraryStore extends ChangeNotifier {
           if (changed) changesFromOthers++;
         }
         lastSynced = DateTime.now();
+        await _checkTeamNotices();
+        if (++_ticks % 15 == 0) await heartbeat();
       } catch (e) {
         debugPrint('Refresh failed: $e');
       }
@@ -310,6 +458,7 @@ class LibraryStore extends ChangeNotifier {
   // ---------------------------------------------------------------- save
 
   Future<void> save() {
+    if (readOnly) return _saveChain;
     final rootPath = root.path;
     _saveChain = _saveChain.then((_) async {
       final target = File(p.join(rootPath, libraryFileName));
@@ -342,6 +491,10 @@ class LibraryStore extends ChangeNotifier {
   }
 
   Future<void> _changed({Project? renameIn}) async {
+    if (readOnly) {
+      notifyListeners();
+      return;
+    }
     if (renameIn != null) await _syncNames(renameIn);
     notifyListeners();
     await save();
@@ -376,8 +529,11 @@ class LibraryStore extends ChangeNotifier {
     final bn = _seg(b?.name ?? 'Building');
     final vn = _seg(v?.name ?? 'View');
     final ext = p.extension(m.originalName).toLowerCase();
-    final n = number.toString().padLeft(2, '0');
-    return '${projectFolder(pr)}/$bn/$vn/${dayKey(c.date)}_${bn}_${vn}_$n$ext';
+    final n = (m.seq ?? number).toString().padLeft(2, '0');
+    // Initials of whoever added it keep names unique when two people add
+    // photos to the same building on the same day from different computers.
+    final who = initialsOf(m.addedBy ?? '').replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    return '${projectFolder(pr)}/$bn/$vn/${dayKey(c.date)}_${bn}_${vn}_$n${who.isEmpty ? '' : '_$who'}$ext';
   }
 
   /// Renames stored files so every name says building, view and date. Files
@@ -491,6 +647,7 @@ class LibraryStore extends ChangeNotifier {
     );
     projects.add(pr);
     await _changed();
+    unawaited(_log('created the project', pr: pr));
     return pr;
   }
 
@@ -500,6 +657,7 @@ class LibraryStore extends ChangeNotifier {
     if (location != null) pr.location = location.trim();
     if (description != null) pr.description = description.trim();
     await _changed(renameIn: pr);
+    unawaited(_log('updated the project details', pr: pr));
   }
 
   /// Sets how the project card looks: newest drone photo, a chosen image
@@ -519,12 +677,14 @@ class LibraryStore extends ChangeNotifier {
     if (color != null) pr.coverColor = color;
     pr.coverMode = mode;
     await _changed();
+    unawaited(_log('changed the project cover', pr: pr));
   }
 
   Future<void> deleteProject(Project pr) async {
     projects.remove(pr);
     _tomb([pr.id]);
     await _changed();
+    unawaited(_log('deleted the project "${pr.name}"'));
     for (final dir in [projectDir(pr), Directory(p.join(root.path, 'projects', pr.id))]) {
       try {
         if (await dir.exists()) await dir.delete(recursive: true);
@@ -545,11 +705,14 @@ class LibraryStore extends ChangeNotifier {
     final b = Building(id: _uuid.v4(), name: name.trim(), views: _makeViews(viewNames));
     pr.buildings.add(b);
     await _changed();
+    unawaited(_log('added building ${b.name}', pr: pr));
     return b;
   }
 
   Future<void> renameBuilding(Project pr, Building b, String name) async {
+    final old = b.name;
     b.name = name.trim();
+    unawaited(_log('renamed building $old to ${b.name}', pr: pr));
     await _changed(renameIn: pr);
   }
 
@@ -560,6 +723,7 @@ class LibraryStore extends ChangeNotifier {
     pr.captures.removeWhere((c) => c.buildingId == b.id);
     pr.buildings.remove(b);
     await _changed();
+    unawaited(_log('deleted building ${b.name}', pr: pr));
     await _deleteFiles(files);
   }
 
@@ -569,6 +733,7 @@ class LibraryStore extends ChangeNotifier {
     final v = BuildingView(id: _uuid.v4(), name: name.trim());
     b.views.add(v);
     await _changed();
+    unawaited(_log('added view ${v.name} to ${b.name}', pr: pr));
     return v;
   }
 
@@ -584,16 +749,19 @@ class LibraryStore extends ChangeNotifier {
     pr.captures.removeWhere(caps.contains);
     b.views.remove(v);
     await _changed();
+    unawaited(_log('deleted view ${v.name} of ${b.name}', pr: pr));
     await _deleteFiles(files);
   }
 
   Future<void> moveView(Project pr, Building b, int oldIndex, int newIndex) async {
+    if (readOnly) return;
     final v = b.views.removeAt(oldIndex);
     b.views.insert(newIndex.clamp(0, b.views.length), v);
     await _changed();
   }
 
   Future<void> moveBuilding(Project pr, int oldIndex, int newIndex) async {
+    if (readOnly) return;
     final b = pr.buildings.removeAt(oldIndex);
     pr.buildings.insert(newIndex.clamp(0, pr.buildings.length), b);
     await _changed();
@@ -644,7 +812,9 @@ class LibraryStore extends ChangeNotifier {
     await mediaDir.create(recursive: true);
 
     var imported = 0;
+    var photos = 0, videos = 0;
     final skipped = <String>[];
+    var nextSeq = capture.items.fold<int>(0, (m, x) => (x.seq ?? 0) > m ? x.seq! : m) + 1;
     for (var i = 0; i < paths.length; i++) {
       final src = File(paths[i]);
       final name = p.basename(src.path);
@@ -673,8 +843,16 @@ class LibraryStore extends ChangeNotifier {
           originalName: name,
           sizeBytes: destLen,
           addedAt: DateTime.now(),
+          addedBy: user?.name,
+          addedById: user?.id,
+          seq: nextSeq++,
         ));
         imported++;
+        if (type == MediaType.photo) {
+          photos++;
+        } else {
+          videos++;
+        }
       } catch (e) {
         skipped.add('$name ($e)');
       }
@@ -682,6 +860,13 @@ class LibraryStore extends ChangeNotifier {
     onProgress?.call(paths.length, paths.length, '');
     if (capture.items.isEmpty) pr.captures.remove(capture);
     await _changed(renameIn: pr);
+    if (imported > 0) {
+      final what = [
+        if (photos > 0) '$photos photo${photos == 1 ? '' : 's'}',
+        if (videos > 0) '$videos video${videos == 1 ? '' : 's'}',
+      ].join(' and ');
+      unawaited(_log('added $what to ${pr.labelFor(capture)} for ${prettyDay(capture.date)}', pr: pr));
+    }
     return ImportResult(imported, skipped);
   }
 
@@ -703,6 +888,7 @@ class LibraryStore extends ChangeNotifier {
     pr.captures.removeWhere((c) => c.items.isEmpty);
     await _deleteFiles(files);
     await _changed(renameIn: pr);
+    unawaited(_log('deleted ${items.length} file${items.length == 1 ? '' : 's'}', pr: pr));
   }
 
   Future<void> deleteDay(Project pr, DateTime day, String? buildingId, {String? viewId}) async {
@@ -711,12 +897,14 @@ class LibraryStore extends ChangeNotifier {
     _tomb([for (final c in caps) ...[c.id, ...c.items.map((m) => m.id)]]);
     pr.captures.removeWhere(caps.contains);
     await _changed();
+    unawaited(_log('deleted the ${prettyDay(day)} capture (${files.length} files)', pr: pr));
     await _deleteFiles(files);
   }
 
   Future<void> setNote(Project pr, Capture c, String note) async {
     c.note = note.trim();
     await _changed();
+    if (c.note.isNotEmpty) unawaited(_log('noted on ${pr.labelFor(c)}, ${prettyDay(c.date)}: "${c.note}"', pr: pr));
   }
 
   /// Moves every capture shown on [from] to [to] (merging with what's there).
@@ -726,6 +914,10 @@ class LibraryStore extends ChangeNotifier {
     for (final c in caps) {
       final target = captureFor(pr, c.buildingId, c.viewId, to);
       if (target != null && target != c) {
+        var next = _nextSeq(target);
+        for (final m in c.items) {
+          m.seq = next++;
+        }
         target.items.addAll(c.items);
         if (target.note.isEmpty) target.note = c.note;
         pr.captures.remove(c);
@@ -735,6 +927,7 @@ class LibraryStore extends ChangeNotifier {
       }
     }
     await _changed(renameIn: pr);
+    unawaited(_log('moved the ${prettyDay(from)} capture to ${prettyDay(to)}', pr: pr));
   }
 
   /// Moves items to another building, view and/or date.
@@ -745,12 +938,16 @@ class LibraryStore extends ChangeNotifier {
       final c = captureContaining(pr, m);
       if (c == target) continue;
       c?.items.remove(m);
+      m.seq = _nextSeq(target);
       target.items.add(m);
     }
     _tomb(pr.captures.where((c) => c.items.isEmpty).map((c) => c.id));
     pr.captures.removeWhere((c) => c.items.isEmpty);
     await _changed(renameIn: pr);
+    unawaited(_log('moved ${items.length} file${items.length == 1 ? '' : 's'} to ${pr.labelFor(target)}, ${prettyDay(day)}', pr: pr));
   }
+
+  int _nextSeq(Capture c) => c.items.fold<int>(0, (m, x) => (x.seq ?? 0) > m ? x.seq! : m) + 1;
 
   Future<void> _deleteFiles(List<File> files) async {
     for (final f in files) {
@@ -839,6 +1036,10 @@ class LibraryStore extends ChangeNotifier {
     }
     root = newRoot;
     await setConfig('libraryPath', newRoot.path);
+    readOnly = !await _checkWritable();
+    _noticesSince = DateTime.now();
+    await heartbeat();
+    if (readOnly) message = '$message You have view-only access to this folder.';
     notifyListeners();
     return message;
   }

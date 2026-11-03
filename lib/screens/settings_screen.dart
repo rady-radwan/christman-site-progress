@@ -11,7 +11,7 @@ import '../theme.dart';
 import '../models.dart';
 import '../util.dart';
 
-const appVersion = '1.5.0';
+const appVersion = '1.6.0';
 
 /// Cloud folders synced to this PC by their desktop apps.
 List<(String, String)> detectCloudFolders() {
@@ -183,7 +183,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               '2. In Google Drive, share that folder with your colleagues as Editors (or keep it in a Shared drive).\n'
               '3. Each colleague installs Google Drive for desktop and this app, adds the shared folder to their '
               'My Drive (right-click › Organize › Add shortcut), then clicks "Open a shared library folder…" and picks it.\n'
-              'Everyone then sees the same projects, photos and videos. The app checks for changes every 20 seconds.',
+              'Everyone then sees the same projects, photos and videos, with who added what. The app checks for '
+              'changes every 20 seconds and tells you when a teammate adds something.\n'
+              'Tip: in Google Drive for desktop, right-click the folder › Offline access › Available offline, '
+              'so photos open instantly.\n'
+              'Share as Viewer to give someone view-only access in the app.',
               style: TextStyle(color: scheme.onSurfaceVariant, height: 1.5),
             ),
           ],
