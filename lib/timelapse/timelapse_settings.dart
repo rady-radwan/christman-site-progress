@@ -22,6 +22,8 @@ enum CardStyle { glass, solid, none }
 
 enum Quality { standard, high, maximum }
 
+enum LogoStyle { appIcon, christman }
+
 enum MotionMode { none, slowZoom, custom }
 
 enum MotionScope { wholeVideo, eachPhoto }
@@ -88,15 +90,17 @@ class TimelapseSettings {
   // Overlay content
   bool showDate = true;
   DateStyle dateStyle = DateStyle.long;
-  bool showWeek = true;
+  bool showWeek = false;
   bool showBuilding = true;
   bool showView = true;
   bool showProject = true;
-  bool showDayCounter = false;
+  bool showDayCounter = true;
   bool showNote = false;
   TimeSymbol timeSymbol = TimeSymbol.clock;
   bool showProgressBar = true;
   bool showLogo = true;
+  LogoStyle logoStyle = LogoStyle.christman;
+  String? fontFamily; // null = Segoe UI
 
   // Overlay style
   OverlayCorner corner = OverlayCorner.bottomLeft;
@@ -140,6 +144,9 @@ class TimelapseSettings {
         Quality.maximum => 14,
       };
 
+  String get logoAsset =>
+      logoStyle == LogoStyle.christman ? 'assets/christman_logo_light.png' : 'assets/logo.png';
+
   String get preset => quality == Quality.maximum ? 'medium' : 'veryfast';
 
   Map<String, dynamic> toJson() => {
@@ -169,6 +176,9 @@ class TimelapseSettings {
         'timeSymbol': timeSymbol.name,
         'showProgressBar': showProgressBar,
         'showLogo': showLogo,
+        'logoStyle': logoStyle.name,
+        if (fontFamily != null) 'fontFamily': fontFamily,
+        'schema': 2,
         'corner': corner.name,
         'textSize': textSize.name,
         'cardStyle': cardStyle.name,
@@ -218,12 +228,20 @@ class TimelapseSettings {
       ..timeSymbol = _enum(TimeSymbol.values, j['timeSymbol'], s.timeSymbol)
       ..showProgressBar = b('showProgressBar', s.showProgressBar)
       ..showLogo = b('showLogo', s.showLogo)
+      ..logoStyle = _enum(LogoStyle.values, j['logoStyle'], s.logoStyle)
+      ..fontFamily = j['fontFamily'] as String?
       ..corner = _enum(OverlayCorner.values, j['corner'], s.corner)
       ..textSize = _enum(TextSize.values, j['textSize'], s.textSize)
       ..cardStyle = _enum(CardStyle.values, j['cardStyle'], s.cardStyle)
       ..accent = (j['accent'] as num?)?.toInt() ?? s.accent
       ..titleCard = b('titleCard', s.titleCard)
       ..titleSeconds = d('titleSeconds', s.titleSeconds);
+    // Captures aren't always weekly: older saves showed week numbers by default.
+    if (j['schema'] == null) {
+      s
+        ..showWeek = false
+        ..showDayCounter = true;
+    }
     return s;
   }
 }

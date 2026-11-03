@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../library_store.dart';
+import '../appearance.dart';
 import '../models.dart';
 import '../timelapse/frame_painter.dart';
 import '../timelapse/timelapse_export.dart';
@@ -77,10 +78,11 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
 
   Future<void> _init() async {
     final cfg = await LibraryStore.readConfig();
-    final logo = await loadLogo();
+    final loaded = TimelapseSettings.fromJson((cfg['timelapse'] as Map?)?.cast<String, dynamic>());
+    final logo = await loadLogo(loaded.logoAsset);
     if (!mounted) return;
     setState(() {
-      _s = TimelapseSettings.fromJson((cfg['timelapse'] as Map?)?.cast<String, dynamic>());
+      _s = loaded;
       _logo = logo;
       _replan();
       _frame = widget.autoPlay ? 0 : (_plan.titleFrames > 0 ? (_plan.titleFrames * 0.5).round() : 0);
@@ -596,12 +598,12 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
         _seg<MotionScope>(
           'The camera moves',
           s.motionScope,
-          const {MotionScope.wholeVideo: 'Across all weeks', MotionScope.eachPhoto: 'On each photo'},
+          const {MotionScope.wholeVideo: 'Across all captures', MotionScope.eachPhoto: 'On each photo'},
           (v) => _update(() => s.motionScope = v),
         ),
         _Hint(s.motionScope == MotionScope.wholeVideo
-            ? 'The view travels from Start to End over the whole video, so each new week begins exactly '
-                'where the zoom was on the week before.'
+            ? 'The view travels from Start to End over the whole video, so each new capture begins exactly '
+                'where the zoom was on the one before.'
             : 'Every photo repeats the same move from Start to End.'),
         _switch('Smooth start and stop', s.easeMotion, (v) => _update(() => s.easeMotion = v)),
       ],
@@ -715,8 +717,9 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
               const {DateStyle.long: 'Monday, Nov 2…', DateStyle.medium: 'Nov 2, 2026', DateStyle.numeric: '2026-11-02'},
               (v) => _update(() => s.dateStyle = v),
             ),
-          _switch('Week number', s.showWeek, (v) => _update(() => s.showWeek = v)),
-          _switch('Day counter (Day 1, Day 8…)', s.showDayCounter, (v) => _update(() => s.showDayCounter = v)),
+          _switch('Day counter (Day 1, Day 15… from the first capture)', s.showDayCounter,
+              (v) => _update(() => s.showDayCounter = v)),
+          _switch('Week number (counted from the first capture)', s.showWeek, (v) => _update(() => s.showWeek = v)),
           _switch('Building name', s.showBuilding, (v) => _update(() => s.showBuilding = v)),
           _switch('Camera view', s.showView, (v) => _update(() => s.showView = v)),
           _switch('Project name', s.showProject, (v) => _update(() => s.showProject = v)),
@@ -779,7 +782,26 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
                 ),
             ],
           ),
+          Text('Font on the video', style: Theme.of(context).textTheme.labelLarge),
+          DropdownButtonFormField<String>(
+            key: ValueKey('font${s.fontFamily}'),
+            initialValue: s.fontFamily ?? appFonts.first,
+            isExpanded: true,
+            decoration: _dec('Font'),
+            items: [
+              for (final f in appFonts)
+                DropdownMenuItem(value: f, child: Text(f, style: TextStyle(fontFamily: f))),
+            ],
+            onChanged: (v) => _update(() => s.fontFamily = v),
+          ),
           _switch('Logo', s.showLogo, (v) => _update(() => s.showLogo = v)),
+          if (s.showLogo)
+            _seg<LogoStyle>('Which logo', s.logoStyle,
+                const {LogoStyle.christman: 'Christman', LogoStyle.appIcon: 'App icon'}, (v) async {
+              _update(() => s.logoStyle = v);
+              final logo = await loadLogo(s.logoAsset);
+              if (mounted) setState(() => _logo = logo);
+            }),
         ]),
         _section('Title card & music', Icons.music_note_outlined, [
           _switch('Title card at the start', s.titleCard, (v) => _update(() => s.titleCard = v)),

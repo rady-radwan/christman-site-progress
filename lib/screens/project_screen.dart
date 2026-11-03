@@ -11,6 +11,7 @@ import '../dialogs/add_media_dialog.dart';
 import '../dialogs/project_dialog.dart';
 import '../library_store.dart';
 import '../models.dart';
+import '../theme.dart';
 import '../util.dart';
 import '../widgets/media_tile.dart';
 import '../widgets/timeline_bar.dart';
@@ -244,6 +245,19 @@ class _ProjectScreenState extends State<ProjectScreen> {
     setState(() => _day = null);
   }
 
+  /// "CAPTURE 6 OF 7 · DAY 43" — counted from the first capture, by date.
+  String _captureLabel(Project pr, DateTime day) {
+    final dates = _dates(pr);
+    final i = dates.indexWhere((d) => dayKey(d) == dayKey(day));
+    if (i < 0 || dates.isEmpty) return '';
+    final first = dates.first;
+    final days = DateTime.utc(day.year, day.month, day.day)
+            .difference(DateTime.utc(first.year, first.month, first.day))
+            .inDays +
+        1;
+    return 'CAPTURE ${i + 1} OF ${dates.length}  ·  DAY $days';
+  }
+
   String _scopeLabel(Project pr) {
     if (_buildingId == null) return 'all buildings';
     final b = pr.buildingById(_buildingId!);
@@ -308,7 +322,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
       for (final c in pr.capturesOn(d, _buildingId, viewId: _viewId)) {
         for (final m in c.videos) {
           items.add(m);
-          labels.add('Week ${pr.weekNumber(d)} · ${prettyDay(d)} · ${pr.labelFor(c)}');
+          labels.add('${prettyDay(d)} · ${pr.labelFor(c)}');
         }
       }
     }
@@ -487,7 +501,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       width: 290,
-      color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF111820) : const Color(0xFFF1EEE9),
+      color: context.palette.sidebar,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -790,7 +804,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('WEEK ${pr.weekNumber(day)}  ·  ${_scopeLabel(pr).toUpperCase()}',
+                          Text('${_captureLabel(pr, day)}  ·  ${_scopeLabel(pr).toUpperCase()}',
                               style: TextStyle(
                                   color: scheme.primary,
                                   fontWeight: FontWeight.w800,
@@ -880,7 +894,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
           children: [
             Icon(Icons.add_photo_alternate_outlined, size: 56, color: scheme.primary),
             const SizedBox(height: 12),
-            const Text('Add this week\'s drone photos and videos to start the timeline.'),
+            const Text('Add your drone photos and videos to start the timeline.'),
             const SizedBox(height: 4),
             Text('Tip: you can drag files straight onto this window, and back-date older captures.',
                 style: TextStyle(color: scheme.onSurfaceVariant)),
@@ -940,12 +954,12 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       onPressed: () => _playVideos(
                           pr, allOfType, 0, List.filled(allOfType.length, prettyDay(day))),
                       icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Play this week'),
+                      label: const Text('Play this capture'),
                     ),
                     OutlinedButton.icon(
                       onPressed: () => _playAllWeeks(pr),
                       icon: const Icon(Icons.playlist_play_rounded),
-                      label: const Text('Play all weeks in order'),
+                      label: const Text('Play all captures in order'),
                     ),
                   ],
                 ),

@@ -324,7 +324,7 @@ class _PhotoViewerState extends State<PhotoViewer> {
                     Text(
                       day == null
                           ? ''
-                          : 'Week ${widget.project.weekNumber(day)} · ${prettyDay(day)}${bName.isEmpty ? '' : ' · $bName'}',
+                          : '${prettyDay(day)} · capture ${_dayIndex + 1} of ${_dates.length}${bName.isEmpty ? '' : ' · $bName'}',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
                     ),
                     Text(

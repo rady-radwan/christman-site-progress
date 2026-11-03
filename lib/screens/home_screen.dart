@@ -6,6 +6,7 @@ import '../dialogs/cover_dialog.dart';
 import '../dialogs/project_dialog.dart';
 import '../library_store.dart';
 import '../models.dart';
+import '../theme.dart';
 import '../util.dart';
 import '../widgets/project_cover.dart';
 import 'project_screen.dart';
@@ -54,41 +55,50 @@ class HomeScreen extends StatelessWidget {
         children: [
           // ---------------- header
           Container(
-            padding: const EdgeInsets.fromLTRB(28, 22, 20, 22),
+            padding: const EdgeInsets.fromLTRB(28, 20, 20, 20),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: dark
-                    ? const [Color(0xFF1E2A33), Color(0xFF16222B)]
-                    : const [Colors.white, Color(0xFFF3EEE8)],
-              ),
+              color: context.palette.header,
               border: Border(bottom: BorderSide(color: Theme.of(context).dividerTheme.color ?? Colors.black12)),
             ),
             child: Row(
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.asset('assets/logo.png', width: 68, height: 68, filterQuality: FilterQuality.high),
+                // Christman wordmark + the app's own mark
+                Image.asset(
+                  dark ? 'assets/christman_logo_light.png' : 'assets/christman_logo_dark.png',
+                  height: 50,
+                  filterQuality: FilterQuality.high,
                 ),
-                const SizedBox(width: 18),
+                Container(
+                  width: 2,
+                  height: 54,
+                  margin: const EdgeInsets.symmetric(horizontal: 22),
+                  color: scheme.primary,
+                ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.asset('assets/logo.png', width: 56, height: 56, filterQuality: FilterQuality.high),
+                ),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Christman Site Progress',
+                      Text('SITE PROGRESS',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 30,
+                            fontSize: 28,
                             fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
+                            letterSpacing: 2.5,
                             color: dark ? Colors.white : brandSlateText,
                           )),
-                      const SizedBox(height: 2),
                       Text(
                         projects.isEmpty
-                            ? 'Week-by-week drone progress for every site'
+                            ? 'Drone progress for every site, capture by capture'
                             : '${projects.length} project${projects.length == 1 ? '' : 's'} · $buildings buildings · '
                                 '$photos photos · $videos videos',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
                       ),
                     ],
@@ -261,7 +271,7 @@ class _ProjectCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
                             color: const Color(0xAA000000), borderRadius: BorderRadius.circular(20)),
-                        child: Text('Week ${project.weekNumber(last)} · ${DateFormat('MMM d').format(last)}',
+                        child: Text('Last capture · ${DateFormat('MMM d, yyyy').format(last)}',
                             style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
                       ),
                     ),

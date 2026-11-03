@@ -92,6 +92,14 @@ void main() {
     expect(plan.cameraFor(plan.at(10)).zoom, 1); // restarts on each photo
   });
 
+  test('older saved settings switch from week numbers to day counter', () {
+    final old = TimelapseSettings.fromJson({'showWeek': true, 'showDayCounter': false});
+    expect(old.showWeek, isFalse);
+    expect(old.showDayCounter, isTrue);
+    final saved = TimelapseSettings.fromJson((TimelapseSettings()..showWeek = true).toJson());
+    expect(saved.showWeek, isTrue); // a choice made in this version is kept
+  });
+
   test('settings survive a save/load round trip', () {
     final s = TimelapseSettings()
       ..timeSymbol = TimeSymbol.hourglass

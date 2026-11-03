@@ -97,7 +97,7 @@ Future<ProjectFormResult?> showProjectDialog(
                       maxLines: 8,
                       decoration: const InputDecoration(
                         labelText: 'Camera views for each building — one per line',
-                        helperText: 'The same angle and elevation you shoot every week.',
+                        helperText: 'The same angle and elevation you shoot every time.',
                         border: OutlineInputBorder(),
                         alignLabelWithHint: true,
                       ),

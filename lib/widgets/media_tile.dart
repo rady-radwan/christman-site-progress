@@ -202,7 +202,7 @@ class _MediaTileState extends State<MediaTile> {
                       ),
                       if (widget.onTimelapse != null)
                         Tooltip(
-                          message: 'Play a timelapse of this view across all weeks',
+                          message: 'Play a timelapse of this view across all captures',
                           child: TextButton.icon(
                             onPressed: widget.onTimelapse,
                             icon: const Icon(Icons.movie_creation_outlined, size: 20),

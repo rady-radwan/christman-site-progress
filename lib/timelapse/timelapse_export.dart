@@ -85,9 +85,9 @@ class SlotImageCache {
   }
 }
 
-Future<ui.Image?> loadLogo() async {
+Future<ui.Image?> loadLogo([String asset = 'assets/logo.png']) async {
   try {
-    final data = await rootBundle.load('assets/logo.png');
+    final data = await rootBundle.load(asset);
     final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
     return (await codec.getNextFrame()).image;
   } catch (_) {

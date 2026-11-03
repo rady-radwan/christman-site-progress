@@ -6,11 +6,12 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../library_store.dart';
-import '../main.dart' show themeMode;
+import '../appearance.dart';
+import '../theme.dart';
 import '../models.dart';
 import '../util.dart';
 
-const appVersion = '1.4.0';
+const appVersion = '1.5.0';
 
 /// Cloud folders synced to this PC by their desktop apps.
 List<(String, String)> detectCloudFolders() {
@@ -256,23 +257,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Text('APPEARANCE',
               style: TextStyle(fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
           const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: ValueListenableBuilder<ThemeMode>(
-                valueListenable: themeMode,
-                builder: (context, mode, _) => SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode_outlined), label: Text('Dark')),
-                    ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode_outlined), label: Text('Light')),
-                    ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.computer_outlined), label: Text('System')),
-                  ],
-                  selected: {mode},
-                  onSelectionChanged: (s) => themeMode.value = s.first,
-                ),
-              ),
-            ),
-          ),
+          const _AppearanceCard(),
           const SizedBox(height: 20),
           Text('KEYBOARD',
               style: TextStyle(fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
@@ -295,6 +280,192 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextStyle(color: scheme.onSurfaceVariant)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AppearanceCard extends StatelessWidget {
+  const _AppearanceCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final look = context.watch<AppAppearance>();
+    final scheme = Theme.of(context).colorScheme;
+    final label = Theme.of(context).textTheme.labelLarge;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Theme', style: label),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (final t in appThemes)
+                  _ThemeSwatch(spec: t, selected: look.themeId == t.id, onTap: () => look.setTheme(t.id)),
+                _ThemeSwatch(
+                  spec: themeById('christman-light'),
+                  second: themeById('christman-dark'),
+                  name: 'Match Windows',
+                  selected: look.themeId == systemThemeId,
+                  onTap: () => look.setTheme(systemThemeId),
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            Text('Font', style: label),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: 420,
+              child: DropdownButtonFormField<String>(
+                key: ValueKey(look.effectiveFont),
+                initialValue: look.effectiveFont ?? appFonts.first,
+                isExpanded: true,
+                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                items: [
+                  for (final f in appFonts)
+                    DropdownMenuItem(
+                      value: f,
+                      child: Text(f, style: TextStyle(fontFamily: f, fontSize: 15)),
+                    ),
+                ],
+                onChanged: (v) => look.setFont(v),
+              ),
+            ),
+            const SizedBox(height: 22),
+            Row(
+              children: [
+                Text('Text size', style: label),
+                const Spacer(),
+                Text('${(look.textScale * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.w700)),
+              ],
+            ),
+            Row(
+              children: [
+                const Text('A', style: TextStyle(fontSize: 12)),
+                Expanded(
+                  child: Slider(
+                    value: look.textScale,
+                    min: 0.8,
+                    max: 1.5,
+                    divisions: 14,
+                    onChanged: (v) => look.setTextScale((v * 20).roundToDouble() / 20),
+                  ),
+                ),
+                const Text('A', style: TextStyle(fontSize: 22)),
+                const SizedBox(width: 8),
+                TextButton(onPressed: () => look.setTextScale(1.0), child: const Text('Reset')),
+              ],
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Hospital · 45° angle', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 4),
+                  Text('Preview: Level 3 deck poured, curtain wall started on the east side.',
+                      style: TextStyle(color: scheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeSwatch extends StatelessWidget {
+  const _ThemeSwatch({required this.spec, required this.selected, required this.onTap, this.second, this.name});
+
+  final AppThemeSpec spec;
+  final AppThemeSpec? second;
+  final String? name;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    Widget mini(AppThemeSpec t) => Expanded(
+          child: Container(
+            color: t.surface,
+            child: Column(
+              children: [
+                Container(height: 16, color: t.bar),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(width: 22, color: t.sidebar),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(height: 22, decoration: BoxDecoration(color: t.card, borderRadius: BorderRadius.circular(3))),
+                              const SizedBox(height: 5),
+                              Container(
+                                  width: 34,
+                                  height: 9,
+                                  decoration: BoxDecoration(color: t.primary, borderRadius: BorderRadius.circular(5))),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 150,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? scheme.primary : Theme.of(context).dividerTheme.color!, width: selected ? 3 : 1),
+        ),
+        child: Column(
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+              child: SizedBox(
+                height: 78,
+                child: Row(children: [mini(spec), if (second != null) mini(second!)]),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (selected) Icon(Icons.check_circle, size: 16, color: scheme.primary),
+                  if (selected) const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(name ?? spec.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

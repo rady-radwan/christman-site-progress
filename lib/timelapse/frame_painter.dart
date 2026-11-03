@@ -9,6 +9,16 @@ import 'timelapse_settings.dart';
 
 typedef SlotImage = ui.Image? Function(int slot);
 
+String? _font; // font family for the frame being drawn
+
+/// Draws a logo of any shape: square icons bigger, wide wordmarks shorter.
+Rect _logoRect(ui.Image logo, double unit, {required double right, required double top, bool alignRight = true}) {
+  final aspect = logo.width / logo.height;
+  final h = aspect > 1.6 ? 40 * unit : 84 * unit;
+  final w = h * aspect;
+  return Rect.fromLTWH(alignRight ? right - w : right, top, w, h);
+}
+
 /// Draws one timelapse frame in output pixels. The live preview and the MP4
 /// export use this same function, so what you see is what you get.
 void paintFrame(
@@ -22,6 +32,7 @@ void paintFrame(
   bool overlays = true,
 }) {
   final s = plan.settings;
+  _font = s.fontFamily ?? 'Segoe UI';
   canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xFF000000));
   if (plan.slots.isEmpty) return;
 
@@ -140,6 +151,7 @@ TextPainter _text(String text, double fontSize,
       text: text,
       style: TextStyle(
         fontSize: fontSize,
+        fontFamily: _font,
         fontWeight: weight,
         color: color,
         letterSpacing: letterSpacing,
@@ -281,16 +293,16 @@ void _paintOverlays(Canvas canvas, Size size, TimelapsePlan plan, FrameInfo info
   if (s.showProgressBar) _progressBar(canvas, size, plan, info, accent, base, u);
 
   if (s.showLogo && logo != null) {
-    final ls = 84 * base;
     final right = s.corner != OverlayCorner.topRight;
-    final dst = Rect.fromLTWH(right ? size.width - margin - ls : margin, margin, ls, ls);
+    final dst = _logoRect(logo, base,
+        right: right ? size.width - margin : margin, top: margin, alignRight: right);
     canvas.drawImageRect(
       logo,
       Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
       dst,
       Paint()
         ..filterQuality = FilterQuality.high
-        ..color = const Color(0xDDFFFFFF),
+        ..color = const Color(0xE6FFFFFF),
     );
   }
 }
@@ -493,9 +505,9 @@ void _paintTitle(Canvas canvas, Size size, TimelapsePlan plan, FrameInfo info, S
       Rect.fromCenter(center: Offset(size.width / 2, y + 30 * u), width: 120 * u, height: 5 * u),
       Paint()..color = s.accentColor);
   if (s.showLogo && logo != null) {
-    final ls = 110 * u;
+    final r = _logoRect(logo, u * 1.3, right: 0, top: y + 60 * u, alignRight: false);
     canvas.drawImageRect(logo, Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
-        Rect.fromLTWH(size.width / 2 - ls / 2, y + 60 * u, ls, ls), Paint()..filterQuality = FilterQuality.high);
+        r.shift(Offset(size.width / 2 - r.width / 2, 0)), Paint()..filterQuality = FilterQuality.high);
   }
   canvas.restore();
 

@@ -266,7 +266,7 @@ class _CompareScreenState extends State<CompareScreen> {
           border: Border(left: BorderSide(color: color, width: 4)),
         ),
         child: Text(
-          '$tag · Week ${widget.project.weekNumber(d)} · ${prettyDay(d)}${view.isEmpty ? '' : ' · $view'}',
+          '$tag · ${prettyDay(d)}${view.isEmpty ? '' : ' · $view'}',
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
       );
