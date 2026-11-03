@@ -20,8 +20,17 @@ void main() {
   });
 
   tearDown(() async {
-    await tmp.delete(recursive: true);
-    await src.delete(recursive: true);
+    // Activity is written in the background; give Windows a moment to let go.
+    for (final d in [tmp, src]) {
+      for (var i = 0; i < 20; i++) {
+        try {
+          await d.delete(recursive: true);
+          break;
+        } catch (_) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
+    }
   });
 
   test('imports get coordinated names and follow renames', () async {
