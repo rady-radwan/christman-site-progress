@@ -502,6 +502,6 @@ void _paintTitle(Canvas canvas, Size size, TimelapsePlan plan, FrameInfo info, S
   // Dissolve into the first photo during the last fifth of the title.
   if (p > 0.8 && first != null) {
     final a = ((p - 0.8) / 0.2).clamp(0.0, 1.0);
-    _drawPhoto(canvas, size, s, first, 0, a);
+    _drawPhoto(canvas, size, s, first, plan.cameraFor(const FrameInfo()), a);
   }
 }
