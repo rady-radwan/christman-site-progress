@@ -4,7 +4,8 @@ A week-by-week record of construction sites from drone photos and videos.
 
 - **Many projects, many buildings** — each project holds its own buildings/areas, with a cover (latest drone photo, your own picture, or an icon), its location, and live counts of buildings, capture dates, photos and videos.
 - **Camera views per building** — Front, Back, Side, 45° angle, or your own. Shoot the same angle and elevation every week and each view gets its own timeline.
-- **Timeline bar** — every capture date is a stop on the bar along the bottom. Click a week (or use ← / →) to see the site as it was then; press ▶ to play week by week.
+- **Timeline slider** — every capture sits at its real date on one bar that always fits the window. Drag the handle or click anywhere and it snaps to the nearest capture (or use ← / →); press ▶ to play capture by capture.
+- **Overviews** — *All buildings* shows every building side by side with its latest photo and counts; picking a building shows all its camera views left to right, in your sidebar order.
 - **Coordinated file names** — files are stored as `Project/Building/View/2026-11-02_Building_View_01.jpg` and renamed automatically when you rename a building or view or change a date. The camera's original name is kept for reference.
 - **Share through Google Drive** — Settings › Cloud & sharing moves the library into Google Drive (or OneDrive/Dropbox). Colleagues open the same shared folder and see the same projects; the app merges changes from every computer and checks for updates every 20 seconds.
 - **Team use** — everyone enters their name once; every photo shows who added it, and **Team & activity** lists people, when they were last active, and a feed of everything added or changed. A pop-up tells you when a teammate adds photos. People shared as *Viewer* in Google Drive get a view-only app. Each person writes only their own files in `team/`, so Google Drive never sees conflicting edits.

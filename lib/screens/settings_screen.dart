@@ -11,7 +11,7 @@ import '../theme.dart';
 import '../models.dart';
 import '../util.dart';
 
-const appVersion = '1.6.0';
+const appVersion = '1.7.0';
 
 /// Cloud folders synced to this PC by their desktop apps.
 List<(String, String)> detectCloudFolders() {

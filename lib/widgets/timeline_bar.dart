@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -9,9 +8,10 @@ import '../models.dart';
 int _daysBetween(DateTime a, DateTime b) =>
     DateTime.utc(b.year, b.month, b.day).difference(DateTime.utc(a.year, a.month, a.day)).inDays;
 
-/// A true calendar timeline from the first capture to the last. Every capture
-/// sits at its real date, so uneven gaps between flights show as uneven
-/// spacing. Month marks run along the line.
+/// A calendar timeline from the first capture to the last that always fits
+/// the available width. Every capture sits at its real date. It works like a
+/// slider: drag the handle (or click anywhere) and it snaps to the nearest
+/// capture.
 class DateTrack extends StatefulWidget {
   const DateTrack({
     super.key,
@@ -33,39 +33,28 @@ class DateTrack extends StatefulWidget {
 }
 
 class _DateTrackState extends State<DateTrack> {
-  final _scroll = ScrollController();
+  double? _dragX; // handle position while dragging
   List<double> _xs = const [];
-  double _viewW = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(false));
-  }
-
-  @override
-  void didUpdateWidget(covariant DateTrack old) {
-    super.didUpdateWidget(old);
-    if (old.selectedIndex != widget.selectedIndex || old.dates.length != widget.dates.length) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(true));
+  int _nearest(double x) {
+    var best = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < _xs.length; i++) {
+      final d = (x - _xs[i]).abs();
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
     }
+    return best;
   }
 
-  void _reveal(bool animate) {
-    final i = widget.selectedIndex;
-    if (!_scroll.hasClients || i < 0 || i >= _xs.length) return;
-    final target = (_xs[i] - _viewW / 2).clamp(0.0, _scroll.position.maxScrollExtent);
-    if (animate) {
-      _scroll.animateTo(target, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
-    } else {
-      _scroll.jumpTo(target);
-    }
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
+  void _pointer(double x, {bool dragging = true}) {
+    if (_xs.isEmpty) return;
+    final lo = _xs.first, hi = _xs.last;
+    setState(() => _dragX = dragging ? x.clamp(lo, hi) : null);
+    final i = _nearest(x);
+    if (i != widget.selectedIndex) widget.onSelect(i);
   }
 
   @override
@@ -75,174 +64,169 @@ class _DateTrackState extends State<DateTrack> {
     final dates = widget.dates;
     final compact = widget.compact;
     final height = compact ? 58.0 : 80.0;
-    final trackY = compact ? 20.0 : 30.0;
+    final trackY = compact ? 18.0 : 30.0;
 
     return LayoutBuilder(builder: (context, box) {
-      _viewW = box.maxWidth;
       if (dates.isEmpty) return SizedBox(height: height);
-      final pad = compact ? 44.0 : 60.0;
+      final pad = compact ? 34.0 : 44.0;
+      final w = box.maxWidth;
       final first = dates.first;
       final span = math.max(1, _daysBetween(first, dates.last));
-      var minGap = 1 << 30;
-      for (var i = 1; i < dates.length; i++) {
-        minGap = math.min(minGap, math.max(1, _daysBetween(dates[i - 1], dates[i])));
-      }
-      if (minGap == 1 << 30) minGap = 1;
-      final minPx = compact ? 72.0 : 92.0;
-      final ppd = math.max((box.maxWidth - 2 * pad) / span, minPx / minGap);
-      final contentW = math.max(box.maxWidth, span * ppd + 2 * pad);
+      final usable = math.max(10.0, w - 2 * pad);
       _xs = dates.length == 1
-          ? [box.maxWidth / 2]
-          : [for (final d in dates) pad + _daysBetween(first, d) * ppd];
+          ? [w / 2]
+          : [for (final d in dates) pad + _daysBetween(first, d) / span * usable];
       final sel = widget.selectedIndex.clamp(0, dates.length - 1);
-      final x0 = _xs.first, xN = _xs.last, xs = _xs[sel];
+      final selX = _xs[sel];
+      final handleX = _dragX ?? selX;
 
-      // Month boundaries inside the range.
+      // Which dates get a text label (the rest are dots with a tooltip).
+      final labelGap = compact ? 58.0 : 66.0;
+      final labelled = <int>{sel};
+      for (final i in [0, dates.length - 1]) {
+        if ((_xs[i] - selX).abs() >= labelGap) labelled.add(i);
+      }
+      for (var i = 0; i < dates.length; i++) {
+        if (labelled.contains(i)) continue;
+        if (labelled.every((j) => (_xs[j] - _xs[i]).abs() >= labelGap)) labelled.add(i);
+      }
+
+      // Month boundaries
       final months = <(double, DateTime)>[];
       var m = DateTime(first.year, first.month + 1, 1);
       while (!m.isAfter(dates.last)) {
-        months.add((pad + _daysBetween(first, m) * ppd, m));
+        months.add((pad + _daysBetween(first, m) / span * usable, m));
         m = DateTime(m.year, m.month + 1, 1);
       }
+      final monthLabelEvery = math.max(1, (months.length / math.max(1, w / 70)).ceil());
       final muted = scheme.onSurfaceVariant;
 
-      return Listener(
-        onPointerSignal: (e) {
-          if (e is PointerScrollEvent && _scroll.hasClients) {
-            final d = e.scrollDelta.dx != 0 ? e.scrollDelta.dx : e.scrollDelta.dy;
-            _scroll.jumpTo((_scroll.offset + d).clamp(0.0, _scroll.position.maxScrollExtent));
-          }
-        },
-        child: Scrollbar(
-          controller: _scroll,
-          child: SingleChildScrollView(
-            controller: _scroll,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: contentW,
-              height: height,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  // Track and progress up to the selected capture.
-                  Positioned(
-                    left: x0,
-                    width: math.max(0.0, xN - x0),
-                    top: trackY - 1,
-                    height: 2,
-                    child: Container(color: scheme.outlineVariant),
-                  ),
-                  Positioned(
-                    left: x0,
-                    width: math.max(0.0, xs - x0),
-                    top: trackY - 1.5,
-                    height: 3,
-                    child: Container(color: accent),
-                  ),
-                  // Month marks
-                  for (final (mx, md) in months) ...[
-                    Positioned(
-                      left: mx,
-                      top: trackY - 7,
-                      width: 1,
-                      height: 14,
-                      child: Container(color: muted.withValues(alpha: 0.6)),
+      return MouseRegion(
+        cursor: _dragX != null ? SystemMouseCursors.grabbing : SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (d) => _pointer(d.localPosition.dx, dragging: false),
+          onHorizontalDragStart: (d) => _pointer(d.localPosition.dx),
+          onHorizontalDragUpdate: (d) => _pointer(d.localPosition.dx),
+          onHorizontalDragEnd: (_) => setState(() => _dragX = null),
+          onHorizontalDragCancel: () => setState(() => _dragX = null),
+          child: SizedBox(
+            width: w,
+            height: height,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // Track and progress
+                Positioned(
+                  left: _xs.first,
+                  width: math.max(0.0, _xs.last - _xs.first),
+                  top: trackY - 2,
+                  height: 4,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.outlineVariant,
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    if (!compact)
-                      Positioned(
-                        left: mx + 4,
-                        top: trackY - 22,
-                        child: Text(
-                          md.month == 1 ? DateFormat('MMM yyyy').format(md).toUpperCase() : DateFormat('MMM').format(md).toUpperCase(),
-                          style: TextStyle(fontSize: 9.5, letterSpacing: 0.8, fontWeight: FontWeight.w700, color: muted),
-                        ),
-                      ),
-                  ],
-                  // Captures
-                  for (var i = 0; i < dates.length; i++)
+                  ),
+                ),
+                Positioned(
+                  left: _xs.first,
+                  width: math.max(0.0, handleX - _xs.first),
+                  top: trackY - 2,
+                  height: 4,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                // Month marks
+                for (var k = 0; k < months.length; k++) ...[
+                  Positioned(
+                    left: months[k].$1,
+                    top: trackY - 8,
+                    width: 1,
+                    height: 16,
+                    child: Container(color: muted.withValues(alpha: 0.55)),
+                  ),
+                  if (!compact && k % monthLabelEvery == 0)
                     Positioned(
-                      left: _xs[i] - 42,
-                      width: 84,
-                      top: trackY - 11,
-                      child: _Marker(
-                        date: dates[i],
-                        selected: i == sel,
-                        accent: accent,
-                        compact: compact,
-                        showYear: !compact && (i == 0 || i == dates.length - 1 || dates[i].year != dates[i - 1].year),
-                        onTap: () => widget.onSelect(i),
+                      left: months[k].$1 + 4,
+                      top: trackY - 24,
+                      child: Text(
+                        months[k].$2.month == 1
+                            ? DateFormat('MMM yyyy').format(months[k].$2).toUpperCase()
+                            : DateFormat('MMM').format(months[k].$2).toUpperCase(),
+                        style: TextStyle(fontSize: 9.5, letterSpacing: 0.8, fontWeight: FontWeight.w700, color: muted),
                       ),
                     ),
                 ],
-              ),
+                // Capture dots
+                for (var i = 0; i < dates.length; i++)
+                  Positioned(
+                    left: _xs[i] - 7,
+                    top: trackY - 7,
+                    width: 14,
+                    height: 14,
+                    child: Tooltip(
+                      message: prettyDay(dates[i]),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: i <= sel ? accent : scheme.surface,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: accent, width: 2),
+                        ),
+                      ),
+                    ),
+                  ),
+                // Date labels
+                for (final i in labelled)
+                  Positioned(
+                    left: _xs[i] - 45,
+                    width: 90,
+                    top: trackY + 12,
+                    child: IgnorePointer(
+                      child: Column(
+                        children: [
+                          Text(
+                            DateFormat('MMM d').format(dates[i]),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: compact ? 11.5 : 13,
+                              fontWeight: i == sel ? FontWeight.w800 : FontWeight.w500,
+                              color: i == sel ? accent : scheme.onSurface,
+                            ),
+                          ),
+                          if (!compact &&
+                              (i == 0 || i == dates.length - 1 || dates[i].year != dates[i - 1].year))
+                            Text('${dates[i].year}', style: TextStyle(fontSize: 10, color: muted)),
+                        ],
+                      ),
+                    ),
+                  ),
+                // Slider handle
+                AnimatedPositioned(
+                  duration: _dragX != null ? Duration.zero : const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  left: handleX - 12,
+                  top: trackY - 12,
+                  width: 24,
+                  height: 24,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: accent,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 3),
+                        boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.55), blurRadius: 10)],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       );
     });
-  }
-}
-
-class _Marker extends StatelessWidget {
-  const _Marker({
-    required this.date,
-    required this.selected,
-    required this.accent,
-    required this.compact,
-    required this.showYear,
-    required this.onTap,
-  });
-
-  final DateTime date;
-  final bool selected;
-  final Color accent;
-  final bool compact;
-  final bool showYear;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final size = selected ? 18.0 : 11.0;
-    return Tooltip(
-      message: prettyDay(date),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              height: 22,
-              child: Center(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: size,
-                  height: size,
-                  decoration: BoxDecoration(
-                    color: selected ? accent : scheme.surface,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: selected ? Colors.white : accent, width: selected ? 3 : 2),
-                    boxShadow: selected ? [BoxShadow(color: accent.withValues(alpha: 0.5), blurRadius: 8)] : null,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              DateFormat('MMM d').format(date),
-              style: TextStyle(
-                fontSize: compact ? 11.5 : 13,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                color: selected ? accent : scheme.onSurface,
-              ),
-            ),
-            if (showYear)
-              Text('${date.year}', style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -306,7 +290,7 @@ class TimelineBar extends StatelessWidget {
                             style: TextStyle(color: scheme.onSurfaceVariant)),
                       )
                     : Padding(
-                        padding: const EdgeInsets.only(top: 6),
+                        padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
                         child: DateTrack(
                           dates: dates,
                           selectedIndex: i < 0 ? dates.length - 1 : i,

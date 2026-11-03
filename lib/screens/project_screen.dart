@@ -14,6 +14,7 @@ import '../models.dart';
 import '../theme.dart';
 import '../util.dart';
 import '../widgets/media_tile.dart';
+import '../widgets/overview.dart';
 import '../widgets/timeline_bar.dart';
 import 'compare_screen.dart';
 import 'home_screen.dart' show ViewOnlyBanner;
@@ -909,6 +910,28 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   Widget _content(Project pr, List<DateTime> dates, DateTime? day, bool selecting) {
     final scheme = Theme.of(context).colorScheme;
+
+    // Overviews: all buildings side by side, or all views of one building.
+    if (_type == MediaType.photo && _viewId == null && (day != null || pr.captures.isNotEmpty)) {
+      final asOf = day ?? DateTime.now();
+      if (_buildingId == null) {
+        return AllBuildingsOverview(
+          project: pr,
+          day: asOf,
+          onOpenBuilding: (id) => _selectBuilding(id),
+        );
+      }
+      final b = pr.buildingById(_buildingId!);
+      if (b != null) {
+        return BuildingViewsOverview(
+          project: pr,
+          building: b,
+          day: asOf,
+          onOpenView: (v) => _selectBuilding(b.id, viewId: v),
+        );
+      }
+    }
+
     if (day == null) {
       return Center(
         child: Column(
