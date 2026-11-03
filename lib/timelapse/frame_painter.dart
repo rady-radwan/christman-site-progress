@@ -17,8 +17,10 @@ void paintFrame(
   TimelapsePlan plan,
   FrameInfo info,
   SlotImage imageFor,
-  ui.Image? logo,
-) {
+  ui.Image? logo, {
+  bool cameraOff = false,
+  bool overlays = true,
+}) {
   final s = plan.settings;
   canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xFF000000));
   if (plan.slots.isEmpty) return;
@@ -28,21 +30,55 @@ void paintFrame(
     return;
   }
 
+  final cam = cameraOff ? CameraFrame.whole : plan.cameraFor(info);
   final img = imageFor(info.slot);
-  if (img != null) _drawPhoto(canvas, size, s, img, s.kenBurns ? info.local : 0, 1);
+  if (img != null) _drawPhoto(canvas, size, s, img, cam, 1);
   final next = info.nextSlot;
   if (next != null && info.mix > 0) {
     final nimg = imageFor(next);
-    if (nimg != null) _drawPhoto(canvas, size, s, nimg, 0, info.mix);
+    final ncam = cameraOff ? CameraFrame.whole : plan.cameraFor(info, forNext: true);
+    if (nimg != null) _drawPhoto(canvas, size, s, nimg, ncam, info.mix);
   }
-  _paintOverlays(canvas, size, plan, info, logo);
+  if (overlays) _paintOverlays(canvas, size, plan, info, logo);
 }
 
 // ------------------------------------------------------------------ photo
 
-void _drawPhoto(Canvas canvas, Size size, TimelapseSettings s, ui.Image img, double kb, double alpha) {
+/// Where the whole photo sits in the frame at zoom 1: the full frame when
+/// filling, the letter-boxed rectangle when fitting. Camera centres are
+/// fractions of this rectangle, so a zoomed area stays on the same spot of
+/// the site from one week's photo to the next.
+Rect photoBaseRect(Size size, TimelapseSettings s, ui.Image img) {
+  if (s.fit == PhotoFit.fill) return Offset.zero & size;
   final iw = img.width.toDouble(), ih = img.height.toDouble();
-  final zoom = 1 + 0.07 * kb;
+  final scale = math.min(size.width / iw, size.height / ih);
+  return Rect.fromCenter(center: size.center(Offset.zero), width: iw * scale, height: ih * scale);
+}
+
+/// The part of the zoom-1 frame the camera shows. The view is kept inside
+/// the photo whenever the photo is big enough to fill it.
+Rect cameraRectInFrame(Size size, TimelapseSettings s, ui.Image img, CameraFrame cam) {
+  final base = photoBaseRect(size, s, img);
+  final z = cam.zoom < 1 ? 1.0 : cam.zoom;
+  final w = size.width / z, h = size.height / z;
+  double fit(double c, double lo, double hi, double half) =>
+      hi - lo >= half * 2 ? c.clamp(lo + half, hi - half) : (lo + hi) / 2;
+  final cx = fit(base.left + cam.cx * base.width, base.left, base.right, w / 2);
+  final cy = fit(base.top + cam.cy * base.height, base.top, base.bottom, h / 2);
+  return Rect.fromCenter(center: Offset(cx, cy), width: w, height: h);
+}
+
+/// Converts a point in the zoom-1 frame to a camera centre (0..1, 0..1).
+Offset cameraCentreFromPoint(Size size, TimelapseSettings s, ui.Image img, Offset pt) {
+  final base = photoBaseRect(size, s, img);
+  return Offset(
+    ((pt.dx - base.left) / base.width).clamp(0.0, 1.0),
+    ((pt.dy - base.top) / base.height).clamp(0.0, 1.0),
+  );
+}
+
+void _drawPhoto(Canvas canvas, Size size, TimelapseSettings s, ui.Image img, CameraFrame cam, double alpha) {
+  final iw = img.width.toDouble(), ih = img.height.toDouble();
   final layer = alpha < 1;
   if (layer) {
     canvas.saveLayer(Offset.zero & size, Paint()..color = Color.fromRGBO(0, 0, 0, alpha));
@@ -55,9 +91,14 @@ void _drawPhoto(Canvas canvas, Size size, TimelapseSettings s, ui.Image img, dou
     return Rect.fromCenter(center: Offset(iw / 2, ih / 2), width: sw, height: sh);
   }
 
+  final zoom = cam.zoom < 1 ? 1.0 : cam.zoom;
   switch (s.fit) {
     case PhotoFit.fill:
-      canvas.drawImageRect(img, coverSrc(zoom), Offset.zero & size, quality);
+      final base = coverSrc(1);
+      final w = base.width / zoom, h = base.height / zoom;
+      final cx = (base.left + cam.cx * base.width).clamp(base.left + w / 2, base.right - w / 2);
+      final cy = (base.top + cam.cy * base.height).clamp(base.top + h / 2, base.bottom - h / 2);
+      canvas.drawImageRect(img, Rect.fromCenter(center: Offset(cx, cy), width: w, height: h), Offset.zero & size, quality);
     case PhotoFit.fit:
     case PhotoFit.blurFill:
       if (s.fit == PhotoFit.blurFill) {
@@ -69,11 +110,14 @@ void _drawPhoto(Canvas canvas, Size size, TimelapseSettings s, ui.Image img, dou
         canvas.restore();
         canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0x66000000));
       }
-      final scale = math.min(size.width / iw, size.height / ih) * zoom;
-      final dst = Rect.fromCenter(
-          center: size.center(Offset.zero), width: iw * scale, height: ih * scale);
+      final dst = photoBaseRect(size, s, img);
+      // Show exactly the camera's view rectangle across the whole frame.
+      final view = cameraRectInFrame(size, s, img, CameraFrame(zoom, cam.cx, cam.cy));
       canvas.save();
       canvas.clipRect(Offset.zero & size);
+      canvas.translate(size.width / 2, size.height / 2);
+      canvas.scale(zoom);
+      canvas.translate(-view.center.dx, -view.center.dy);
       canvas.drawImageRect(img, Rect.fromLTWH(0, 0, iw, ih), dst, quality);
       canvas.restore();
   }

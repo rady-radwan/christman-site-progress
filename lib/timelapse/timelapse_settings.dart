@@ -22,6 +22,37 @@ enum CardStyle { glass, solid, none }
 
 enum Quality { standard, high, maximum }
 
+enum MotionMode { none, slowZoom, custom }
+
+enum MotionScope { wholeVideo, eachPhoto }
+
+/// Where the virtual camera looks: zoom (1 = whole photo) and the centre of
+/// the view as a fraction of the photo (0..1, 0..1).
+class CameraFrame {
+  const CameraFrame(this.zoom, this.cx, this.cy);
+  final double zoom;
+  final double cx;
+  final double cy;
+
+  static const whole = CameraFrame(1, 0.5, 0.5);
+
+  CameraFrame copyWith({double? zoom, double? cx, double? cy}) =>
+      CameraFrame(zoom ?? this.zoom, cx ?? this.cx, cy ?? this.cy);
+
+  static CameraFrame lerp(CameraFrame a, CameraFrame b, double t) => CameraFrame(
+        a.zoom + (b.zoom - a.zoom) * t,
+        a.cx + (b.cx - a.cx) * t,
+        a.cy + (b.cy - a.cy) * t,
+      );
+
+  Map<String, dynamic> toJson() => {'zoom': zoom, 'cx': cx, 'cy': cy};
+  static CameraFrame fromJson(Object? j, CameraFrame fallback) {
+    if (j is! Map) return fallback;
+    double d(String k, double f) => (j[k] as num?)?.toDouble() ?? f;
+    return CameraFrame(d('zoom', fallback.zoom), d('cx', fallback.cx), d('cy', fallback.cy));
+  }
+}
+
 const accentChoices = <int>[
   0xFFE8742A, // Christman orange
   0xFF4FA3E0, // blue
@@ -47,7 +78,11 @@ class TimelapseSettings {
   PhotoTransition transition = PhotoTransition.crossfade;
   double transitionSeconds = 0.5;
   PhotoFit fit = PhotoFit.fill;
-  bool kenBurns = true;
+  MotionMode motion = MotionMode.slowZoom;
+  MotionScope motionScope = MotionScope.wholeVideo;
+  CameraFrame startFrame = const CameraFrame(1.0, 0.5, 0.5);
+  CameraFrame endFrame = const CameraFrame(1.6, 0.5, 0.5);
+  bool easeMotion = true;
   double endHoldSeconds = 2.0;
 
   // Overlay content
@@ -117,7 +152,11 @@ class TimelapseSettings {
         'transition': transition.name,
         'transitionSeconds': transitionSeconds,
         'fit': fit.name,
-        'kenBurns': kenBurns,
+        'motion': motion.name,
+        'motionScope': motionScope.name,
+        'startFrame': startFrame.toJson(),
+        'endFrame': endFrame.toJson(),
+        'easeMotion': easeMotion,
         'endHoldSeconds': endHoldSeconds,
         'showDate': showDate,
         'dateStyle': dateStyle.name,
@@ -160,7 +199,13 @@ class TimelapseSettings {
       ..transition = _enum(PhotoTransition.values, j['transition'], s.transition)
       ..transitionSeconds = d('transitionSeconds', s.transitionSeconds)
       ..fit = _enum(PhotoFit.values, j['fit'], s.fit)
-      ..kenBurns = b('kenBurns', s.kenBurns)
+      ..motion = j.containsKey('motion')
+          ? _enum(MotionMode.values, j['motion'], s.motion)
+          : (b('kenBurns', true) ? MotionMode.slowZoom : MotionMode.none)
+      ..motionScope = _enum(MotionScope.values, j['motionScope'], s.motionScope)
+      ..startFrame = CameraFrame.fromJson(j['startFrame'], s.startFrame)
+      ..endFrame = CameraFrame.fromJson(j['endFrame'], s.endFrame)
+      ..easeMotion = b('easeMotion', s.easeMotion)
       ..endHoldSeconds = d('endHoldSeconds', s.endHoldSeconds)
       ..showDate = b('showDate', s.showDate)
       ..dateStyle = _enum(DateStyle.values, j['dateStyle'], s.dateStyle)

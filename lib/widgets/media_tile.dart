@@ -93,7 +93,10 @@ class MediaTile extends StatefulWidget {
     required this.onToggleSelect,
     this.onTimelapse,
     this.decodeWidth = 520,
+    this.fit = BoxFit.cover,
   });
+
+  final BoxFit fit;
 
   final MediaItem item;
   final VoidCallback onOpen;
@@ -147,7 +150,10 @@ class _MediaTileState extends State<MediaTile> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        MediaThumb(item: item, decodeWidth: widget.decodeWidth),
+                        Container(
+                          color: widget.fit == BoxFit.contain ? const Color(0xFF0B1014) : null,
+                          child: MediaThumb(item: item, decodeWidth: widget.decodeWidth, fit: widget.fit),
+                        ),
                         if (showCheck)
                           Positioned(
                             top: 8,

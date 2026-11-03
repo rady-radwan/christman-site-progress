@@ -33,6 +33,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   DateTime? _day;
   MediaType _type = MediaType.photo;
   final Set<String> _selected = {};
+  final Set<String> _expanded = {}; // buildings whose views are shown
   bool _dropHover = false;
   Timer? _player;
   final _focus = FocusNode();
@@ -51,6 +52,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   List<DateTime> _dates(Project pr) => pr.datesFor(_buildingId, viewId: _viewId);
 
   void _selectBuilding(String? id, {String? viewId}) => setState(() {
+        if (id != null) _expanded.add(id);
         _buildingId = id;
         _viewId = id == null ? null : viewId;
         _selected.clear();
@@ -483,23 +485,38 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   Widget _sidebar(Project pr) {
     final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      width: 260,
+    return Container(
+      width: 290,
+      color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF111820) : const Color(0xFFF1EEE9),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+            padding: const EdgeInsets.fromLTRB(18, 16, 10, 6),
             child: Row(
               children: [
                 Text('BUILDINGS & VIEWS',
                     style: TextStyle(
-                        fontSize: 11,
-                        letterSpacing: 1,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 11.5,
+                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w800,
                         color: scheme.onSurfaceVariant)),
                 const Spacer(),
                 IconButton(
+                  tooltip: _expanded.length >= pr.buildings.length ? 'Collapse all' : 'Expand all',
+                  iconSize: 20,
+                  onPressed: () => setState(() {
+                    if (_expanded.length >= pr.buildings.length) {
+                      _expanded.clear();
+                    } else {
+                      _expanded.addAll(pr.buildings.map((b) => b.id));
+                    }
+                  }),
+                  icon: Icon(_expanded.length >= pr.buildings.length
+                      ? Icons.unfold_less_rounded
+                      : Icons.unfold_more_rounded),
+                ),
+                IconButton.filledTonal(
                   tooltip: 'Add building / area',
                   iconSize: 20,
                   onPressed: () => _addBuilding(pr),
@@ -508,87 +525,190 @@ class _ProjectScreenState extends State<ProjectScreen> {
               ],
             ),
           ),
-          _BuildingTile(
-            label: 'All buildings',
-            icon: Icons.layers_outlined,
-            count: _countFor(pr),
-            selected: _buildingId == null,
-            onTap: () => _selectBuilding(null),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+            child: _NavRow(
+              label: 'All buildings',
+              subtitle: '${pr.buildings.length} buildings',
+              leading: _IconBadge(icon: Icons.layers_rounded, active: _buildingId == null),
+              count: _countFor(pr),
+              selected: _buildingId == null,
+              onTap: () => _selectBuilding(null),
+            ),
           ),
+          const Divider(indent: 16, endIndent: 16),
           Expanded(
             child: ReorderableListView.builder(
               buildDefaultDragHandles: false,
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
               itemCount: pr.buildings.length,
+              proxyDecorator: (child, i, anim) => Material(
+                elevation: 6,
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                child: child,
+              ),
               onReorder: (a, b) => _store.moveBuilding(pr, a, b > a ? b - 1 : b),
               itemBuilder: (context, i) {
                 final b = pr.buildings[i];
-                final open = _buildingId == b.id;
-                return ReorderableDelayedDragStartListener(
+                final open = _expanded.contains(b.id);
+                final isSel = _buildingId == b.id;
+                return Padding(
                   key: ValueKey(b.id),
-                  index: i,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _BuildingTile(
-                        label: b.name,
-                        icon: Icons.apartment_outlined,
-                        count: _countFor(pr, buildingId: b.id),
-                        selected: open && _viewId == null,
-                        expanded: open,
-                        onTap: () => _selectBuilding(b.id),
-                        menu: PopupMenuButton<String>(
-                          iconSize: 18,
-                          onSelected: (v) {
-                            if (v == 'view') _addView(pr, b);
-                            if (v == 'rename') _renameBuilding(pr, b);
-                            if (v == 'delete') _deleteBuilding(pr, b);
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'view', child: Text('Add camera view')),
-                            PopupMenuItem(value: 'rename', child: Text('Rename building')),
-                            PopupMenuItem(value: 'delete', child: Text('Delete building')),
-                          ],
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: open ? scheme.surface.withValues(alpha: 0.6) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _NavRow(
+                          label: b.name,
+                          subtitle: '${b.views.length} view${b.views.length == 1 ? '' : 's'}',
+                          leading: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () => setState(() {
+                                  if (!_expanded.remove(b.id)) _expanded.add(b.id);
+                                }),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4),
+                                  child: AnimatedRotation(
+                                    turns: open ? 0.25 : 0,
+                                    duration: const Duration(milliseconds: 150),
+                                    child: Icon(Icons.chevron_right_rounded,
+                                        size: 22, color: scheme.onSurfaceVariant),
+                                  ),
+                                ),
+                              ),
+                              _IconBadge(icon: Icons.apartment_rounded, active: isSel),
+                            ],
+                          ),
+                          count: _countFor(pr, buildingId: b.id),
+                          selected: isSel && _viewId == null,
+                          highlighted: isSel,
+                          onTap: () => _selectBuilding(b.id),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              PopupMenuButton<String>(
+                                iconSize: 18,
+                                tooltip: 'Building options',
+                                onSelected: (v) {
+                                  if (v == 'view') _addView(pr, b);
+                                  if (v == 'rename') _renameBuilding(pr, b);
+                                  if (v == 'up') _store.moveBuilding(pr, i, i - 1);
+                                  if (v == 'down') _store.moveBuilding(pr, i, i + 1);
+                                  if (v == 'delete') _deleteBuilding(pr, b);
+                                },
+                                itemBuilder: (_) => [
+                                  const PopupMenuItem(value: 'view', child: Text('Add camera view')),
+                                  const PopupMenuItem(value: 'rename', child: Text('Rename building')),
+                                  const PopupMenuDivider(),
+                                  PopupMenuItem(value: 'up', enabled: i > 0, child: const Text('Move up')),
+                                  PopupMenuItem(
+                                      value: 'down', enabled: i < pr.buildings.length - 1, child: const Text('Move down')),
+                                  const PopupMenuDivider(),
+                                  const PopupMenuItem(value: 'delete', child: Text('Delete building')),
+                                ],
+                              ),
+                              ReorderableDragStartListener(
+                                index: i,
+                                child: MouseRegion(
+                                  cursor: SystemMouseCursors.grab,
+                                  child: Tooltip(
+                                    message: 'Drag to reorder',
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+                                      child: Icon(Icons.drag_indicator_rounded,
+                                          size: 20, color: scheme.onSurfaceVariant.withValues(alpha: 0.7)),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      if (open) ...[
-                        for (final v in b.views)
-                          _BuildingTile(
-                            label: v.name,
-                            icon: Icons.photo_camera_outlined,
-                            indent: true,
-                            count: _countFor(pr, buildingId: b.id, viewId: v.id),
-                            selected: _viewId == v.id,
-                            onTap: () => _selectBuilding(b.id, viewId: v.id),
-                            menu: PopupMenuButton<String>(
-                              iconSize: 18,
-                              onSelected: (x) {
-                                if (x == 'rename') _renameView(pr, v);
-                                if (x == 'delete') _deleteView(pr, b, v);
-                              },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(value: 'rename', child: Text('Rename view')),
-                                PopupMenuItem(value: 'delete', child: Text('Delete view')),
-                              ],
-                            ),
-                          ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(36, 0, 8, 6),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton.icon(
-                              onPressed: () => _addView(pr, b),
-                              icon: const Icon(Icons.add, size: 18),
-                              label: const Text('Add view'),
-                            ),
-                          ),
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 160),
+                          alignment: Alignment.topCenter,
+                          child: !open
+                              ? const SizedBox(width: double.infinity)
+                              : Padding(
+                                  padding: const EdgeInsets.fromLTRB(26, 0, 0, 6),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      border: Border(
+                                        left: BorderSide(color: scheme.outlineVariant, width: 2),
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.only(left: 8),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        for (var vi = 0; vi < b.views.length; vi++)
+                                          _NavRow(
+                                            dense: true,
+                                            label: b.views[vi].name,
+                                            leading: Icon(Icons.photo_camera_outlined,
+                                                size: 17,
+                                                color: _viewId == b.views[vi].id
+                                                    ? scheme.primary
+                                                    : scheme.onSurfaceVariant),
+                                            count: _countFor(pr, buildingId: b.id, viewId: b.views[vi].id),
+                                            selected: _viewId == b.views[vi].id,
+                                            onTap: () => _selectBuilding(b.id, viewId: b.views[vi].id),
+                                            trailing: PopupMenuButton<String>(
+                                              iconSize: 17,
+                                              tooltip: 'View options',
+                                              onSelected: (x) {
+                                                final v = b.views[vi];
+                                                if (x == 'rename') _renameView(pr, v);
+                                                if (x == 'up') _store.moveView(pr, b, vi, vi - 1);
+                                                if (x == 'down') _store.moveView(pr, b, vi, vi + 1);
+                                                if (x == 'delete') _deleteView(pr, b, v);
+                                              },
+                                              itemBuilder: (_) => [
+                                                const PopupMenuItem(value: 'rename', child: Text('Rename view')),
+                                                PopupMenuItem(value: 'up', enabled: vi > 0, child: const Text('Move up')),
+                                                PopupMenuItem(
+                                                    value: 'down',
+                                                    enabled: vi < b.views.length - 1,
+                                                    child: const Text('Move down')),
+                                                const PopupMenuDivider(),
+                                                const PopupMenuItem(value: 'delete', child: Text('Delete view')),
+                                              ],
+                                            ),
+                                          ),
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: TextButton.icon(
+                                            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                                            onPressed: () => _addView(pr, b),
+                                            icon: const Icon(Icons.add, size: 17),
+                                            label: const Text('Add view'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                         ),
                       ],
-                    ],
+                    ),
                   ),
                 );
               },
             ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+            child: Text('Tip: drag ⠿ to reorder buildings, click › to show views.',
+                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
           ),
         ],
       ),
@@ -834,13 +954,22 @@ class _ProjectScreenState extends State<ProjectScreen> {
           for (final g in groups) ...() {
             // Few photos → big and centered; many → a comfortable grid.
             final n = g.$2.length;
-            final maxW = n == 1 ? 1150.0 : (n == 2 ? 1600.0 : 1800.0);
             final avail = box.maxWidth - 40;
-            final contentW = avail < maxW ? avail : maxW;
-            final side = (box.maxWidth - contentW) / 2;
-            final cols = n == 1 ? 1 : (n == 2 ? 2 : (contentW / 440).floor().clamp(2, 6));
-            final tileW = (contentW - spacing * (cols - 1)) / cols;
+            final big = n <= 2;
+            final cols = n == 1 ? 1 : (n == 2 ? 2 : ((avail < 1800 ? avail : 1800) / 440).floor().clamp(2, 6));
+            var tileW = ((avail < 1800 ? avail : 1800) - spacing * (cols - 1)) / cols;
+            if (big) {
+              // Fit the whole photo on screen: no scrolling for one or two photos.
+              final titleH = showGroupTitles ? 44.0 : 0.0;
+              final videoBar = _type == MediaType.video ? 52.0 : 0.0;
+              final maxImgH = box.maxHeight - titleH - videoBar - 32 - 50;
+              final byHeight = maxImgH / 0.75;
+              if (tileW > byHeight) tileW = byHeight;
+              if (tileW < 280) tileW = 280;
+            }
             final tileH = tileW * 0.75 + 50;
+            final contentW = tileW * cols + spacing * (cols - 1);
+            final side = ((box.maxWidth - contentW) / 2).clamp(16.0, double.infinity);
             return [
               if (showGroupTitles)
                 SliverPadding(
@@ -865,6 +994,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                         key: ValueKey(m.id),
                         item: m,
                         decodeWidth: (tileW * dpr).clamp(400, 2400).round(),
+                        fit: big ? BoxFit.contain : BoxFit.cover,
                         selecting: selecting,
                         selected: _selected.contains(m.id),
                         onToggleSelect: () => setState(() {
@@ -896,64 +1026,98 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 }
 
-class _BuildingTile extends StatelessWidget {
-  const _BuildingTile({
-    required this.label,
-    required this.icon,
-    required this.count,
-    required this.selected,
-    required this.onTap,
-    this.menu,
-    this.indent = false,
-    this.expanded = false,
-  });
-
-  final String label;
+class _IconBadge extends StatelessWidget {
+  const _IconBadge({required this.icon, required this.active});
   final IconData icon;
-  final int count;
-  final bool selected;
-  final VoidCallback onTap;
-  final Widget? menu;
-  final bool indent;
-  final bool expanded;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final highlight = selected || expanded;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(indent ? 30 : 8, indent ? 0 : 2, 8, indent ? 0 : 2),
-      child: Material(
-        color: selected
-            ? scheme.primary.withValues(alpha: 0.14)
-            : expanded
-                ? scheme.primary.withValues(alpha: 0.06)
-                : Colors.transparent,
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: active ? scheme.primary : scheme.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Icon(icon, size: 18, color: active ? Colors.white : scheme.primary),
+    );
+  }
+}
+
+/// One row in the buildings & views list.
+class _NavRow extends StatelessWidget {
+  const _NavRow({
+    required this.label,
+    required this.leading,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+    this.subtitle,
+    this.trailing,
+    this.highlighted = false,
+    this.dense = false,
+  });
+
+  final String label;
+  final String? subtitle;
+  final Widget leading;
+  final int count;
+  final bool selected;
+  final bool highlighted;
+  final bool dense;
+  final VoidCallback onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final strong = selected || highlighted;
+    return Material(
+      color: selected ? scheme.primary.withValues(alpha: 0.16) : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: onTap,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(12, indent ? 4 : 8, menu == null ? 12 : 0, indent ? 4 : 8),
-            child: Row(
-              children: [
-                Icon(icon,
-                    size: indent ? 17 : 20,
-                    color: highlight ? scheme.primary : scheme.onSurfaceVariant),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: indent ? 13 : 14,
-                          fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
-                          color: highlight ? scheme.primary : null)),
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(dense ? 8 : 4, dense ? 2 : 6, trailing == null ? 10 : 0, dense ? 2 : 6),
+          child: Row(
+            children: [
+              leading,
+              SizedBox(width: dense ? 10 : 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: dense ? 13 : 14.5,
+                          fontWeight: strong ? FontWeight.w700 : FontWeight.w500,
+                          color: strong ? scheme.primary : null,
+                        )),
+                    if (subtitle != null)
+                      Text(subtitle!, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                  ],
                 ),
-                Text('$count', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                if (menu != null) menu!,
-              ],
-            ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: count > 0 ? scheme.primary.withValues(alpha: 0.14) : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text('$count',
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: count > 0 ? scheme.primary : scheme.onSurfaceVariant)),
+              ),
+              if (trailing != null) trailing!,
+            ],
           ),
         ),
       ),

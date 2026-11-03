@@ -65,13 +65,45 @@ void main() {
     expect(plan.at(29).nextSlot, isNull);
   });
 
+  test('custom camera keeps moving across weeks without jumping', () {
+    final s = TimelapseSettings()
+      ..fps = 10
+      ..secondsPerPhoto = 1
+      ..transition = PhotoTransition.cut
+      ..titleCard = false
+      ..endHoldSeconds = 0
+      ..motion = MotionMode.custom
+      ..motionScope = MotionScope.wholeVideo
+      ..easeMotion = false
+      ..startFrame = const CameraFrame(1, 0.5, 0.5)
+      ..endFrame = const CameraFrame(3, 0.2, 0.8);
+    final plan = TimelapsePlan(
+      settings: s,
+      slots: buildSlots(project(), buildingId: 'b', viewId: 'f', from: null, to: null, perDate: PhotosPerDate.first),
+      projectName: 'N',
+      scopeLabel: 'H',
+    );
+    final lastOfWeek1 = plan.cameraFor(plan.at(9));
+    final firstOfWeek2 = plan.cameraFor(plan.at(10));
+    expect((firstOfWeek2.zoom - lastOfWeek1.zoom).abs(), lessThan(0.1));
+    expect(plan.cameraFor(plan.at(0)).zoom, 1);
+    expect(plan.cameraFor(plan.at(plan.totalFrames - 1)).zoom, closeTo(3, 1e-9));
+    s.motionScope = MotionScope.eachPhoto;
+    expect(plan.cameraFor(plan.at(10)).zoom, 1); // restarts on each photo
+  });
+
   test('settings survive a save/load round trip', () {
     final s = TimelapseSettings()
       ..timeSymbol = TimeSymbol.hourglass
       ..aspect = VideoAspect.vertical
       ..resolution = VideoResolution.uhd4k
-      ..showNote = true;
+      ..showNote = true
+      ..motion = MotionMode.custom
+      ..endFrame = const CameraFrame(2.5, 0.3, 0.7);
     final back = TimelapseSettings.fromJson(s.toJson());
+    expect(back.motion, MotionMode.custom);
+    expect(back.endFrame.zoom, 2.5);
+    expect(back.endFrame.cx, 0.3);
     expect(back.timeSymbol, TimeSymbol.hourglass);
     expect(back.outputSize.width, 2160);
     expect(back.outputSize.height, 3840);

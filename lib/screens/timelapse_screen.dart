@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -53,6 +55,8 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
   int _playFromFrame = 0;
   bool _playing = false;
   bool _exporting = false;
+  bool _editFrames = false; // placing the zoom start/end boxes on the preview
+  bool _editingStart = true;
   late bool _panelOpen = !widget.autoPlay;
   final _titleC = TextEditingController();
   final _subtitleC = TextEditingController();
@@ -351,11 +355,13 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
                                   style: TextStyle(color: Colors.white70))
                               : AspectRatio(
                                   aspectRatio: out.width / out.height,
-                                  child: RepaintBoundary(
-                                    child: CustomPaint(
-                                      painter: _PreviewPainter(_plan, info, _cache, _logo, frame),
-                                    ),
-                                  ),
+                                  child: _editFrames && !info.isTitle
+                                      ? _frameEditor(info)
+                                      : RepaintBoundary(
+                                          child: CustomPaint(
+                                            painter: _PreviewPainter(_plan, info, _cache, _logo, frame),
+                                          ),
+                                        ),
                                 ),
                         ),
                       ),
@@ -441,6 +447,165 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
         ),
       ),
     );
+  }
+
+  // ------------------------------------------------------------ zoom frame editor
+
+  CameraFrame get _activeFrame => _editingStart ? _s.startFrame : _s.endFrame;
+
+  void _setActive(CameraFrame f) => _update(() {
+        if (_editingStart) {
+          _s.startFrame = f;
+        } else {
+          _s.endFrame = f;
+        }
+      });
+
+  void _startEditing() {
+    _stopPlay();
+    setState(() {
+      _editFrames = true;
+      _s.motion = MotionMode.custom;
+      final info = _plan.at(_frame.clamp(0, (_plan.totalFrames - 1).clamp(0, 1 << 30)));
+      if (info.isTitle && _plan.slots.isNotEmpty) _frame = _plan.frameOfSlot(0);
+      _replan();
+    });
+  }
+
+  Widget _frameEditor(FrameInfo info) {
+    final out = _s.outputSize;
+    final img = _cache.get(info.slot);
+    return LayoutBuilder(builder: (context, box) {
+      final k = box.maxWidth / out.width;
+      void place(Offset local) {
+        if (img == null) return;
+        final c = cameraCentreFromPoint(out, _s, img, local / k);
+        _setActive(_activeFrame.copyWith(cx: c.dx, cy: c.dy));
+      }
+
+      return Listener(
+        onPointerSignal: (e) {
+          if (e is PointerScrollEvent) {
+            final z = (_activeFrame.zoom - e.scrollDelta.dy / 400).clamp(1.0, 5.0);
+            _setActive(_activeFrame.copyWith(zoom: (z * 20).roundToDouble() / 20));
+          }
+        },
+        child: GestureDetector(
+          onTapDown: (d) => place(d.localPosition),
+          onPanUpdate: (d) => place(d.localPosition),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.move,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CustomPaint(painter: _PreviewPainter(_plan, info, _cache, _logo, _frame, cameraOff: true)),
+                if (img != null) CustomPaint(painter: _FramesPainter(_s, img, out, _editingStart)),
+                Positioned(
+                  left: 12,
+                  top: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(color: const Color(0xCC000000), borderRadius: BorderRadius.circular(8)),
+                    child: Text(
+                      'Click or drag to place the ${_editingStart ? 'START' : 'END'} view · '
+                      'scroll to zoom (${_activeFrame.zoom.toStringAsFixed(1)}×)',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  List<Widget> _motionControls() {
+    final s = _s;
+    void preset(CameraFrame a, CameraFrame b) => _update(() {
+          s.startFrame = a;
+          s.endFrame = b;
+        });
+    return [
+      _seg<MotionMode>(
+        'Camera motion',
+        s.motion,
+        const {MotionMode.none: 'None', MotionMode.slowZoom: 'Slow zoom', MotionMode.custom: 'Zoom & pan'},
+        (v) => _update(() {
+          s.motion = v;
+          if (v != MotionMode.custom) _editFrames = false;
+        }),
+      ),
+      if (s.motion == MotionMode.slowZoom)
+        const _Hint('Each photo zooms in gently toward its centre.'),
+      if (s.motion == MotionMode.custom) ...[
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            ActionChip(
+              label: const Text('Zoom in'),
+              onPressed: () => preset(CameraFrame.whole, const CameraFrame(2, 0.5, 0.5)),
+            ),
+            ActionChip(
+              label: const Text('Zoom out'),
+              onPressed: () => preset(const CameraFrame(2, 0.5, 0.5), CameraFrame.whole),
+            ),
+            ActionChip(
+              label: const Text('Stay zoomed'),
+              onPressed: () => preset(
+                  CameraFrame(math.max(1.8, s.startFrame.zoom), s.startFrame.cx, s.startFrame.cy),
+                  CameraFrame(math.max(1.8, s.startFrame.zoom), s.startFrame.cx, s.startFrame.cy)),
+            ),
+            ActionChip(
+              label: const Text('Pan left → right'),
+              onPressed: () => preset(const CameraFrame(1.6, 0.2, 0.5), const CameraFrame(1.6, 0.8, 0.5)),
+            ),
+            ActionChip(
+              label: const Text('Pan top → bottom'),
+              onPressed: () => preset(const CameraFrame(1.6, 0.5, 0.2), const CameraFrame(1.6, 0.5, 0.8)),
+            ),
+          ],
+        ),
+        _slider('Start zoom', s.startFrame.zoom, 1, 5,
+            (v) => _update(() => s.startFrame = s.startFrame.copyWith(zoom: v)), suffix: '×'),
+        _slider('End zoom', s.endFrame.zoom, 1, 5,
+            (v) => _update(() => s.endFrame = s.endFrame.copyWith(zoom: v)), suffix: '×'),
+        if (!_editFrames)
+          FilledButton.tonalIcon(
+            onPressed: _startEditing,
+            icon: const Icon(Icons.crop_free_rounded),
+            label: const Text('Place start & end areas on the preview'),
+          )
+        else ...[
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: true, label: Text('Start area'), icon: Icon(Icons.flag_outlined)),
+              ButtonSegment(value: false, label: Text('End area'), icon: Icon(Icons.sports_score_rounded)),
+            ],
+            selected: {_editingStart},
+            onSelectionChanged: (v) => setState(() => _editingStart = v.first),
+          ),
+          FilledButton.icon(
+            onPressed: () => setState(() => _editFrames = false),
+            icon: const Icon(Icons.check_rounded),
+            label: const Text('Done — preview the motion'),
+          ),
+        ],
+        _seg<MotionScope>(
+          'The camera moves',
+          s.motionScope,
+          const {MotionScope.wholeVideo: 'Across all weeks', MotionScope.eachPhoto: 'On each photo'},
+          (v) => _update(() => s.motionScope = v),
+        ),
+        _Hint(s.motionScope == MotionScope.wholeVideo
+            ? 'The view travels from Start to End over the whole video, so each new week begins exactly '
+                'where the zoom was on the week before.'
+            : 'Every photo repeats the same move from Start to End.'),
+        _switch('Smooth start and stop', s.easeMotion, (v) => _update(() => s.easeMotion = v)),
+      ],
+    ];
   }
 
   // ------------------------------------------------------------ settings panel
@@ -538,7 +703,7 @@ class _TimelapseScreenState extends State<TimelapseScreen> with SingleTickerProv
           _seg<PhotoFit>('Photo framing', s.fit,
               const {PhotoFit.fill: 'Fill', PhotoFit.fit: 'Fit', PhotoFit.blurFill: 'Fit + blur'},
               (v) => _update(() => s.fit = v)),
-          _switch('Slow zoom (Ken Burns)', s.kenBurns, (v) => _update(() => s.kenBurns = v)),
+          ..._motionControls(),
           _slider('Hold last photo', s.endHoldSeconds, 0, 6, (v) => _update(() => s.endHoldSeconds = v), suffix: 's'),
         ]),
         _section('Text on video', Icons.text_fields_rounded, [
@@ -775,7 +940,9 @@ class _Hint extends StatelessWidget {
 }
 
 class _PreviewPainter extends CustomPainter {
-  _PreviewPainter(this.plan, this.info, this.cache, this.logo, this.frame);
+  _PreviewPainter(this.plan, this.info, this.cache, this.logo, this.frame, {this.cameraOff = false});
+
+  final bool cameraOff;
 
   final TimelapsePlan plan;
   final FrameInfo info;
@@ -789,10 +956,80 @@ class _PreviewPainter extends CustomPainter {
     canvas.save();
     canvas.clipRect(Offset.zero & size);
     canvas.scale(size.width / out.width, size.height / out.height);
-    paintFrame(canvas, out, plan, info, cache.get, logo);
+    paintFrame(canvas, out, plan, info, cache.get, logo, cameraOff: cameraOff, overlays: !cameraOff);
     canvas.restore();
   }
 
   @override
   bool shouldRepaint(_PreviewPainter old) => true;
+}
+
+/// Draws the Start and End camera areas over the whole photo.
+class _FramesPainter extends CustomPainter {
+  _FramesPainter(this.s, this.img, this.out, this.editingStart);
+
+  final TimelapseSettings s;
+  final ui.Image img;
+  final Size out;
+  final bool editingStart;
+
+  static const startColor = Color(0xFF4FA3E0);
+  static const endColor = Color(0xFFE8742A);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final k = size.width / out.width;
+    Rect r(CameraFrame f) {
+      final x = cameraRectInFrame(out, s, img, f);
+      return Rect.fromLTRB(x.left * k, x.top * k, x.right * k, x.bottom * k);
+    }
+
+    final a = r(s.startFrame), b = r(s.endFrame);
+    final active = editingStart ? a : b;
+    // Dim everything outside the area being edited.
+    final dim = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addRect(active);
+    canvas.drawPath(dim, Paint()..color = const Color(0x88000000));
+
+    void box(Rect rect, Color c, String label, bool strong) {
+      canvas.drawRect(
+          rect,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = strong ? 3 : 1.5
+            ..color = c);
+      final tp = TextPainter(
+        text: TextSpan(
+            text: label,
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12, background: Paint()..color = c)),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, rect.topLeft + const Offset(4, 4));
+    }
+
+    box(a, startColor, ' START ${s.startFrame.zoom.toStringAsFixed(1)}× ', editingStart);
+    box(b, endColor, ' END ${s.endFrame.zoom.toStringAsFixed(1)}× ', !editingStart);
+    if ((a.center - b.center).distance > 4) {
+      final p = Paint()
+        ..color = Colors.white
+        ..strokeWidth = 2;
+      canvas.drawLine(a.center, b.center, p);
+      final dir = (b.center - a.center) / (b.center - a.center).distance;
+      final n = Offset(-dir.dy, dir.dx);
+      final tip = b.center;
+      canvas.drawPath(
+        Path()
+          ..moveTo(tip.dx, tip.dy)
+          ..lineTo((tip - dir * 14 + n * 7).dx, (tip - dir * 14 + n * 7).dy)
+          ..lineTo((tip - dir * 14 - n * 7).dx, (tip - dir * 14 - n * 7).dy)
+          ..close(),
+        Paint()..color = Colors.white,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FramesPainter old) => true;
 }

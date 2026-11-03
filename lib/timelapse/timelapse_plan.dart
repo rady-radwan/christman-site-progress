@@ -92,6 +92,25 @@ class TimelapsePlan {
     return FrameInfo(slot: i, local: local, global: global);
   }
 
+  /// The camera for the current photo ([forNext] = the photo fading in).
+  /// In "whole video" mode the camera keeps moving smoothly across weeks, so
+  /// a zoomed area stays put when the next week's photo appears.
+  CameraFrame cameraFor(FrameInfo info, {bool forNext = false}) {
+    final s = settings;
+    switch (s.motion) {
+      case MotionMode.none:
+        return CameraFrame.whole;
+      case MotionMode.slowZoom:
+        final t = forNext ? 0.0 : info.local;
+        return CameraFrame(1 + 0.07 * t, 0.5, 0.5);
+      case MotionMode.custom:
+        var t = s.motionScope == MotionScope.wholeVideo ? info.global : (forNext ? 0.0 : info.local);
+        t = t.clamp(0.0, 1.0);
+        if (s.easeMotion) t = t * t * (3 - 2 * t);
+        return CameraFrame.lerp(s.startFrame, s.endFrame, t);
+    }
+  }
+
   /// First frame where [slotIndex] is fully on screen (for preview scrubbing).
   int frameOfSlot(int slotIndex) => titleFrames + slotIndex * framesPerSlot;
 
